@@ -9,7 +9,7 @@ from flask import (
 )
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 
 app = Flask(__name__)
 app.secret_key = os.environ["SECRET_KEY"]
