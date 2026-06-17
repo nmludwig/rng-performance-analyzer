@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Configure Business Case</h1>
+<p class="subtitle">File: <strong>{{ filename }}</strong></p>
+
+<div class="card">
+  <h2>Your inputs</h2>
+  <p style="color:#666;font-size:0.9rem;margin-bottom:1.5rem;">
+    These numbers come from you — the tool will never invent or assume deal values or close rates.
+  </p>
+  <form method="POST">
+    <label for="ae_name">Your name (AE / SE)</label>
+    <input type="text" id="ae_name" name="ae_name" placeholder="e.g. Jane Smith" required>
+
+    <div class="form-row">
+      <div>
+        <label for="avg_deal_value">Average deal value ($)</label>
+        <input type="text" id="avg_deal_value" name="avg_deal_value" placeholder="e.g. 25000" required>
+      </div>
+      <div>
+        <label for="close_rate">Close rate on answered inbound (%)</label>
+        <input type="text" id="close_rate" name="close_rate" placeholder="e.g. 12" required>
+      </div>
+    </div>
+
+    <p style="font-size:0.82rem;color:#888;margin-bottom:1.2rem;">
+      The deck will label every assumption with your name so nothing reads as a RingCentral-asserted fact.
+      Revenue is shown as a low / mid / high range, never a single number.
+    </p>
+
+    <button type="submit" class="btn btn-primary">Generate deck →</button>
+  </form>
+</div>
+{% endblock %}

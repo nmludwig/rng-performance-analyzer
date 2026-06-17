@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block content %}
+<div style="max-width:400px;margin:4rem auto;">
+  <div class="card">
+    <h1 style="margin-bottom:0.25rem;">Sign in</h1>
+    <p class="subtitle">RC Performance Analyzer — internal use only</p>
+    {% if error %}<div class="flash" style="background:#fde8e8;border-color:#e53e3e;color:#7b1d1d;">{{ error }}</div>{% endif %}
+    <form method="POST">
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password" autofocus required>
+      <button class="btn btn-primary" style="width:100%">Sign in</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

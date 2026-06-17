@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Upload Performance Report</h1>
+<p class="subtitle">Export from RingCentral Analytics Portal, then upload the Excel file below.</p>
+
+<div class="card">
+  <h2>How to export</h2>
+  <ol style="padding-left:1.4rem;line-height:2;color:#444;font-size:0.95rem;">
+    <li>Log in to the <strong>RingCentral Analytics Portal</strong></li>
+    <li>Go to <strong>Performance Reports</strong></li>
+    <li>Click the <strong>Calls</strong> tab</li>
+    <li>Set your desired date range and filters</li>
+    <li>Click <strong>Download → Excel (.xlsx)</strong></li>
+    <li>Upload that file below</li>
+  </ol>
+</div>
+
+<div class="card">
+  <h2>Upload file</h2>
+  <form method="POST" action="/upload" enctype="multipart/form-data">
+    <label for="report">Excel file (.xlsx)</label>
+    <input type="file" id="report" name="report" accept=".xlsx,.xls"
+           style="width:100%;padding:0.6rem 0;margin-bottom:1rem;font-size:0.95rem;" required>
+    <button type="submit" class="btn btn-primary">Upload &amp; continue →</button>
+  </form>
+</div>
+{% endblock %}

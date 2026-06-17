@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Generate Deck</h1>
+<p class="subtitle">File: <strong>{{ filename }}</strong> · Prepared by <strong>{{ ae_name }}</strong></p>
+
+<div class="card" id="status-card">
+  <div id="generating-state">
+    <p style="font-size:1rem;color:#444;margin-bottom:1rem;">
+      Processing your report and generating slides with Claude…
+    </p>
+    <div id="spinner" style="width:36px;height:36px;border:4px solid #eee;border-top-color:#ff7a00;
+         border-radius:50%;animation:spin 0.8s linear infinite;margin-bottom:1rem;"></div>
+    <p id="status-msg" style="color:#888;font-size:0.9rem;"></p>
+  </div>
+
+  <div id="done-state" style="display:none;">
+    <p style="color:#228b22;font-weight:600;font-size:1rem;margin-bottom:1rem;">✓ Deck ready!</p>
+    <a id="download-link" href="#" class="btn btn-primary" style="margin-right:0.75rem;">Download .pptx</a>
+  </div>
+
+  <div id="error-state" style="display:none;">
+    <p style="color:#c00;font-weight:600;margin-bottom:0.5rem;">Something went wrong</p>
+    <p id="error-msg" style="color:#666;font-size:0.9rem;margin-bottom:1rem;"></p>
+    <a href="/" class="btn btn-outline">Start over</a>
+  </div>
+</div>
+
+<div class="card" id="refine-card" style="display:none;">
+  <h2>Refine the deck</h2>
+  <p style="color:#666;font-size:0.9rem;margin-bottom:1rem;">
+    Type an instruction and Claude will regenerate the deck. Example: "Make the queue breakdown more prominent" or "Add a stronger call to action on the ROI slide."
+  </p>
+  <div id="chat-log" style="margin-bottom:1rem;max-height:220px;overflow-y:auto;"></div>
+  <form id="refine-form" style="display:flex;gap:0.75rem;">
+    <input type="text" id="instruction" placeholder="Your instruction…"
+           style="flex:1;margin-bottom:0;" required>
+    <button type="submit" class="btn btn-secondary" id="refine-btn">Regenerate</button>
+  </form>
+</div>
+
+<style>
+@keyframes spin { to { transform: rotate(360deg); } }
+.chat-msg { padding:0.5rem 0.75rem;border-radius:6px;margin-bottom:0.5rem;font-size:0.9rem; }
+.chat-user { background:#f0f0f0;color:#222; }
+.chat-system { background:#fff8f0;color:#444;border-left:3px solid #ff7a00; }
+</style>
+
+<script>
+const runId = {{ run_id | tojson }};
+
+async function runProcess() {
+  setStatus("Parsing call data…");
+  const res = await fetch(`/api/process/${runId}`, { method: "POST" });
+  const data = await res.json();
+  if (!res.ok || data.error) {
+    showError(data.error || "Unknown error");
+    return;
+  }
+  showDone(data.download_url);
+}
+
+function setStatus(msg) {
+  document.getElementById("status-msg").textContent = msg;
+}
+
+function showDone(url) {
+  document.getElementById("generating-state").style.display = "none";
+  document.getElementById("done-state").style.display = "block";
+  document.getElementById("refine-card").style.display = "block";
+  document.getElementById("download-link").href = url;
+}
+
+function showError(msg) {
+  document.getElementById("generating-state").style.display = "none";
+  document.getElementById("error-state").style.display = "block";
+  document.getElementById("error-msg").textContent = msg;
+}
+
+document.getElementById("refine-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const input = document.getElementById("instruction");
+  const instruction = input.value.trim();
+  if (!instruction) return;
+
+  appendChat("user", instruction);
+  input.value = "";
+  document.getElementById("refine-btn").disabled = true;
+  appendChat("system", "Regenerating deck…");
+
+  const res = await fetch(`/api/refine/${runId}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ instruction }),
+  });
+  const data = await res.json();
+  document.getElementById("refine-btn").disabled = false;
+
+  const log = document.getElementById("chat-log");
+  log.removeChild(log.lastChild);  // remove "Regenerating…"
+
+  if (!res.ok || data.error) {
+    appendChat("system", "Error: " + (data.error || "Unknown error"));
+  } else {
+    appendChat("system", "Deck updated — download link refreshed.");
+    document.getElementById("download-link").href = data.download_url + "?t=" + Date.now();
+  }
+});
+
+function appendChat(role, text) {
+  const log = document.getElementById("chat-log");
+  const div = document.createElement("div");
+  div.className = "chat-msg chat-" + role;
+  div.textContent = (role === "user" ? "You: " : "System: ") + text;
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+}
+
+runProcess();
+</script>
+{% endblock %}
