@@ -18,78 +18,44 @@
   </p>
 </div>
 
-<!-- What you'll get: deck preview -->
+<!-- What you'll get: real deck preview -->
 <div class="card" style="background:linear-gradient(180deg,#fbfcfe 0%,#fff 100%);">
-  <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:1.25rem;">
-    <h2 style="margin-bottom:0;">What you'll get</h2>
-    <span style="color:#999;font-size:0.82rem;">A 3-slide .pptx, ready to present</span>
+  <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.4rem;">
+    <h2 style="margin-bottom:0;">Here's exactly what you'll get</h2>
+    <span style="color:#999;font-size:0.82rem;">Real example · 3-slide .pptx</span>
+  </div>
+  <p style="color:#777;font-size:0.9rem;margin-bottom:1.5rem;">
+    A finished, RingCentral-branded PowerPoint — built automatically from your upload. Sample below:
+  </p>
+
+  <!-- Hero slide: the headline -->
+  <a href="{{ url_for('static', filename='examples/slide-2.png') }}" target="_blank"
+     style="display:block;border-radius:10px;overflow:hidden;border:1px solid #e7eaf0;
+            box-shadow:0 6px 24px rgba(6,46,92,0.12);margin-bottom:1rem;">
+    <img src="{{ url_for('static', filename='examples/slide-2.png') }}"
+         alt="Example slide: missed calls headline with hourly chart and worst-hit queues"
+         style="width:100%;display:block;">
+  </a>
+
+  <!-- The other two slides -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
+    <a href="{{ url_for('static', filename='examples/slide-1.png') }}" target="_blank"
+       style="display:block;border-radius:8px;overflow:hidden;border:1px solid #e7eaf0;
+              box-shadow:0 2px 10px rgba(0,0,0,0.06);">
+      <img src="{{ url_for('static', filename='examples/slide-1.png') }}"
+           alt="Example slide: methodology" style="width:100%;display:block;">
+    </a>
+    <a href="{{ url_for('static', filename='examples/slide-3.png') }}" target="_blank"
+       style="display:block;border-radius:8px;overflow:hidden;border:1px solid #e7eaf0;
+              box-shadow:0 2px 10px rgba(0,0,0,0.06);">
+      <img src="{{ url_for('static', filename='examples/slide-3.png') }}"
+           alt="Example slide: queue-level detail" style="width:100%;display:block;">
+    </a>
   </div>
 
-  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;">
-
-    <!-- Slide 1 -->
-    <div style="border:1px solid #eef0f4;border-radius:10px;overflow:hidden;background:#fff;
-         box-shadow:0 1px 6px rgba(0,0,0,0.04);">
-      <div style="height:88px;background:#062E5C;position:relative;padding:0.7rem 0.8rem;">
-        <div style="color:#9bb4d6;font-size:0.52rem;letter-spacing:0.05em;text-transform:uppercase;">Slide 1</div>
-        <div style="color:#fff;font-size:0.72rem;font-weight:700;line-height:1.2;margin-top:0.15rem;">How we measured it</div>
-        <div style="position:absolute;bottom:0.55rem;left:0.8rem;right:0.8rem;display:flex;gap:0.3rem;">
-          <span style="flex:1;height:14px;background:rgba(255,255,255,0.15);border-radius:3px;"></span>
-          <span style="flex:1;height:14px;background:rgba(255,122,0,0.55);border-radius:3px;"></span>
-          <span style="flex:1;height:14px;background:rgba(255,255,255,0.15);border-radius:3px;"></span>
-        </div>
-      </div>
-      <div style="padding:0.8rem;">
-        <div style="font-weight:700;font-size:0.85rem;margin-bottom:0.25rem;">Credible methodology</div>
-        <div style="color:#777;font-size:0.78rem;line-height:1.4;">
-          De-duplicated sessions, spam filtered, queues tiered — so the numbers hold up under scrutiny.
-        </div>
-      </div>
-    </div>
-
-    <!-- Slide 2 -->
-    <div style="border:1px solid #eef0f4;border-radius:10px;overflow:hidden;background:#fff;
-         box-shadow:0 1px 6px rgba(0,0,0,0.04);">
-      <div style="height:88px;background:#fff;border-bottom:1px solid #f0f0f0;position:relative;padding:0.7rem 0.8rem;">
-        <div style="color:#FF7A00;font-size:0.52rem;letter-spacing:0.05em;text-transform:uppercase;font-weight:700;">Slide 2</div>
-        <div style="color:#062E5C;font-size:0.72rem;font-weight:700;line-height:1.2;margin-top:0.15rem;">Missed calls headline</div>
-        <div style="position:absolute;bottom:0.55rem;left:0.8rem;right:0.8rem;display:flex;align-items:flex-end;gap:2px;height:30px;">
-          {% for h in [8,13,19,26,22,30,24,16,11,7] %}
-          <span style="flex:1;height:{{ h }}px;background:#FF7A00;border-radius:1px 1px 0 0;opacity:0.85;"></span>
-          {% endfor %}
-        </div>
-      </div>
-      <div style="padding:0.8rem;">
-        <div style="font-weight:700;font-size:0.85rem;margin-bottom:0.25rem;">The big number</div>
-        <div style="color:#777;font-size:0.78rem;line-height:1.4;">
-          Total missed calls, hourly trend, and the worst-hit queues — the slide that lands the point.
-        </div>
-      </div>
-    </div>
-
-    <!-- Slide 3 -->
-    <div style="border:1px solid #eef0f4;border-radius:10px;overflow:hidden;background:#fff;
-         box-shadow:0 1px 6px rgba(0,0,0,0.04);">
-      <div style="height:88px;background:#fff;border-bottom:1px solid #f0f0f0;position:relative;padding:0.7rem 0.8rem;">
-        <div style="color:#FF7A00;font-size:0.52rem;letter-spacing:0.05em;text-transform:uppercase;font-weight:700;">Slide 3</div>
-        <div style="color:#062E5C;font-size:0.72rem;font-weight:700;line-height:1.2;margin-top:0.15rem;">Queue-level detail</div>
-        <div style="position:absolute;bottom:0.5rem;left:0.8rem;right:0.8rem;">
-          {% for w in [92,78,85,64,70] %}
-          <div style="display:flex;gap:4px;align-items:center;margin-bottom:2px;">
-            <span style="width:{{ w }}%;height:4px;background:#062E5C;border-radius:2px;opacity:0.55;"></span>
-          </div>
-          {% endfor %}
-        </div>
-      </div>
-      <div style="padding:0.8rem;">
-        <div style="font-weight:700;font-size:0.85rem;margin-bottom:0.25rem;">Full queue breakdown</div>
-        <div style="color:#777;font-size:0.78rem;line-height:1.4;">
-          Every revenue-facing queue (Tier A/B/C), ranked by missed volume in one clean table.
-        </div>
-      </div>
-    </div>
-
-  </div>
+  <p style="text-align:center;color:#aaa;font-size:0.78rem;margin-top:1rem;margin-bottom:0;">
+    Click any slide to view full size · Your numbers are generated from the file you upload
+  </p>
 </div>
 
 <!-- Upload -->
