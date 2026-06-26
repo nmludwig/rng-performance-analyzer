@@ -100,6 +100,17 @@ class PipelineResult:
     # AIR opportunity signals (Ricky Love expansion)
     answered_under_60: int = 0     # answered calls with talk time < 60s
 
+    # Miss-rate-by-hour analysis (reference deck slide 3)
+    hourly_miss_rate: dict[int, float] = field(default_factory=dict)   # hour 0..23 -> miss rate
+    hourly_inbound: dict[int, int] = field(default_factory=dict)       # hour 0..23 -> inbound count
+    after_hours_miss_lo: float = 0.0   # 6pm-6am miss-rate range
+    after_hours_miss_hi: float = 0.0
+    after_hours_miss_rate: float = 0.0 # 6pm-6am volume-weighted miss rate
+    weekend_miss_lo: float = 0.0       # Sat/Sun miss-rate range
+    weekend_miss_hi: float = 0.0
+    weekend_miss_rate: float = 0.0     # Sat/Sun volume-weighted miss rate
+    midday_miss_rate: float = 0.0      # 11a-2p miss rate
+
     queue_stats: dict[str, QueueStats] = field(default_factory=dict)
     reporting_period: str = ""
     reconciliation_ok: bool = True
@@ -323,6 +334,40 @@ def build_result(sdf: pd.DataFrame, queue_tiers: dict[str, dict]) -> PipelineRes
         if st.hour in hourly_missed:
             hourly_missed[st.hour] += 1
 
+    # Miss-rate-by-hour across all 24 hours + weekend / midday (reference deck slide 3)
+    uni = universe.copy()
+    uni["_hour"] = uni["start_time"].apply(lambda s: s.hour if s is not None else -1)
+    uni["_weekday"] = uni["start_time"].apply(lambda s: s.weekday() if s is not None else -1)
+    uni["_missed"] = uni["outcome"] != OUTCOME_ANSWERED
+    uni_ts = uni[uni["_hour"] >= 0]
+
+    hourly_inbound = {h: 0 for h in range(24)}
+    hourly_miss_rate = {h: 0.0 for h in range(24)}
+    for h in range(24):
+        sub = uni_ts[uni_ts["_hour"] == h]
+        hourly_inbound[h] = len(sub)
+        hourly_miss_rate[h] = float(sub["_missed"].mean()) if len(sub) else 0.0
+
+    def _rate_range(hours):
+        rates = [hourly_miss_rate[h] for h in hours if hourly_inbound[h] > 0]
+        return (min(rates), max(rates)) if rates else (0.0, 0.0)
+
+    after_hours = list(range(18, 24)) + list(range(0, 6))   # 6pm-6am
+    after_hours_miss_lo, after_hours_miss_hi = _rate_range(after_hours)
+    ah_df = uni_ts[uni_ts["_hour"].isin(after_hours)]
+    after_hours_miss_rate = float(ah_df["_missed"].mean()) if len(ah_df) else 0.0
+
+    sat = uni_ts[uni_ts["_weekday"] == 5]
+    sun = uni_ts[uni_ts["_weekday"] == 6]
+    wk_rates = [df["_missed"].mean() for df in (sat, sun) if len(df)]
+    weekend_miss_lo = float(min(wk_rates)) if wk_rates else 0.0
+    weekend_miss_hi = float(max(wk_rates)) if wk_rates else 0.0
+    wk_df = uni_ts[uni_ts["_weekday"].isin([5, 6])]
+    weekend_miss_rate = float(wk_df["_missed"].mean()) if len(wk_df) else 0.0
+
+    midday = uni_ts[uni_ts["_hour"].isin([11, 12, 13])]
+    midday_miss_rate = float(midday["_missed"].mean()) if len(midday) else 0.0
+
     # Period span
     starts = [s for s in universe["start_time"].dropna()]
     if starts:
@@ -381,6 +426,15 @@ def build_result(sdf: pd.DataFrame, queue_tiers: dict[str, dict]) -> PipelineRes
         hourly_missed=hourly_missed,
         days_in_period=days_in_period,
         answered_under_60=answered_under_60,
+        hourly_miss_rate=hourly_miss_rate,
+        hourly_inbound=hourly_inbound,
+        after_hours_miss_lo=after_hours_miss_lo,
+        after_hours_miss_hi=after_hours_miss_hi,
+        after_hours_miss_rate=after_hours_miss_rate,
+        weekend_miss_lo=weekend_miss_lo,
+        weekend_miss_hi=weekend_miss_hi,
+        weekend_miss_rate=weekend_miss_rate,
+        midday_miss_rate=midday_miss_rate,
         queue_stats=queue_stats,
         reporting_period=reporting_period,
         reconciliation_ok=recon_ok,

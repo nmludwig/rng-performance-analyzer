@@ -306,7 +306,75 @@ def _worst_table(s, queues, x, y, w):
 
 
 # ---------------------------------------------------------------------------
-# Slide 3 — AIR opportunity signals (abandoned + sub-60s answered)
+# Slide 3 — miss rate by hour of day (reference deck's key slide)
+# ---------------------------------------------------------------------------
+
+def _slide_hourly(prs, r: PipelineResult, ctx, narr):
+    s = prs.slides.add_slide(prs.slide_layouts[6])
+    _logo(s)
+    _title_block(s, narr.get("title", "Calls slip away after hours, on weekends — and even midday"),
+                 narr.get("subtitle", ""))
+
+    # Big miss-rate column chart (left)
+    _miss_rate_chart(s, r, Inches(0.5), Inches(2.05), Inches(8.0), Inches(4.55))
+
+    # Three callout cards (right)
+    cx, cw = Inches(8.85), Inches(3.98)
+    cards = [
+        (_range_or_pct(r.after_hours_miss_lo, r.after_hours_miss_hi, r.after_hours_miss_rate),
+         "of after-hours calls (6pm–6am) are missed"),
+        (_range_or_pct(r.weekend_miss_lo, r.weekend_miss_hi, r.weekend_miss_rate),
+         "missed on Saturdays and Sundays"),
+        (f"~{round(r.midday_miss_rate*100)}%",
+         "missed even during peak midday hours"),
+    ]
+    cy = Inches(2.05); ch = Inches(1.32); gap = Inches(0.2)
+    for big, label in cards:
+        _rect(s, cx, cy, cw, ch, LIGHT, radius=True)
+        _text(s, big, cx + Inches(0.3), cy + Inches(0.16), cw - Inches(0.6), Inches(0.6),
+              size=30, bold=True, color=RC_ORANGE, font="Arial")
+        _text(s, label, cx + Inches(0.3), cy + Inches(0.78), cw - Inches(0.6), Inches(0.45),
+              size=12, color=GRAY)
+        cy = Emu(int(cy) + int(ch) + int(gap))
+
+    _text(s, "AIR answers instantly — every hour, every day.",
+          cx, cy + Inches(0.05), cw, Inches(0.4),
+          size=13, bold=True, italic=True, color=RC_BLUE)
+    _footer(s, 3)
+
+
+def _miss_rate_chart(s, r, x, y, w, h):
+    cd = CategoryChartData()
+    cd.categories = [_hour_label24(hh) for hh in range(24)]
+    cd.add_series("Miss %", [round(r.hourly_miss_rate.get(hh, 0) * 100) for hh in range(24)])
+    gframe = s.shapes.add_chart(XL_CHART_TYPE.COLUMN_CLUSTERED, x, y, w, h, cd)
+    chart = gframe.chart
+    chart.has_legend = False
+    chart.has_title = True
+    chart.chart_title.text_frame.text = "Miss %"
+    chart.chart_title.text_frame.paragraphs[0].runs[0].font.size = Pt(13)
+    chart.chart_title.text_frame.paragraphs[0].runs[0].font.bold = True
+    plot = chart.plots[0]
+    plot.gap_width = 35
+    plot.series[0].format.fill.solid()
+    plot.series[0].format.fill.fore_color.rgb = RC_ORANGE
+    cat = chart.category_axis
+    cat.tick_labels.font.size = Pt(9)
+    cat.format.line.color.rgb = CARD_BORDER
+    val = chart.value_axis
+    val.minimum_scale = 0
+    val.maximum_scale = 100
+    val.tick_labels.font.size = Pt(9)
+    val.has_major_gridlines = True
+    try:
+        val.major_gridlines.format.line.color.rgb = RGBColor(0xEE, 0xEE, 0xEE)
+    except Exception:
+        pass
+    return gframe
+
+
+# ---------------------------------------------------------------------------
+# Slide 4 — AIR opportunity signals (abandoned + sub-60s answered)
 # ---------------------------------------------------------------------------
 
 def _slide3(prs, r: PipelineResult, ctx, narr):
@@ -355,7 +423,7 @@ def _slide3(prs, r: PipelineResult, ctx, narr):
              "deflecting short, routine calls so staff focus on revenue conversations.",
           Inches(0.5), Inches(6.92), Inches(12.3), Inches(0.4),
           size=11, italic=True, color=RC_BLUE, align=PP_ALIGN.CENTER)
-    _footer(s, 3)
+    _footer(s, 4)
 
 
 def _abandon_table(s, queues, x, y, w):
@@ -436,7 +504,7 @@ def _slide4(prs, r: PipelineResult, ctx, narr):
     queues = sorted(r.queue_stats.values(),
                     key=lambda q: (order.get(q.tier, 9), -q.total_missed))
     _full_table(s, queues, Inches(0.5), Inches(2.92), Inches(12.33))
-    _footer(s, 4)
+    _footer(s, 5)
 
 
 def _full_table(s, queues, x, y, w):
@@ -502,6 +570,25 @@ def _hour_label(h):
     return f"{hh}{suffix}"
 
 
+def _hour_label24(h):
+    if h == 0:
+        return "12a"
+    if h < 12:
+        return f"{h}a"
+    if h == 12:
+        return "12p"
+    return f"{h - 12}p"
+
+
+def _range_or_pct(lo, hi, agg):
+    """Show a "X–Y%" range when both endpoints are meaningful and the spread is
+    wide; otherwise fall back to the volume-weighted aggregate "~Z%"."""
+    lo_p, hi_p, agg_p = round(lo * 100), round(hi * 100), round(agg * 100)
+    if hi_p - lo_p >= 8 and lo_p > 0:
+        return f"{lo_p}–{hi_p}%"
+    return f"~{agg_p}%"
+
+
 # ---------------------------------------------------------------------------
 # orchestration
 # ---------------------------------------------------------------------------
@@ -542,6 +629,8 @@ def build_deck(result: PipelineResult, run_id: str, customer: str, ae_name: str,
 
     narr1 = _narr1(ctx, prior_instructions)
     narr2 = _narr_titles(ctx, prior_instructions, "slide2")
+    narr_hourly = {"title": "Calls slip away after hours, on weekends — and even midday",
+                   "subtitle": f"Inbound miss rate by hour of day · {result.reporting_period} · when branches close or get busy, calls go unanswered"}
     narr3 = {"title": "Where AI Receptionist captures revenue today",
              "subtitle": f"Abandoned-in-queue callers and short routine calls · Tier A+B+C · {result.reporting_period}"}
     narr4 = {"title": "Queue-level missed call analysis (Tier A+B+C)",
@@ -553,6 +642,7 @@ def build_deck(result: PipelineResult, run_id: str, customer: str, ae_name: str,
 
     _slide1(prs, result, ctx, narr1)
     _slide2(prs, result, ctx, narr2, sales_queue_calls)
+    _slide_hourly(prs, result, ctx, narr_hourly)
     _slide3(prs, result, ctx, narr3)
     _slide4(prs, result, ctx, narr4)
 

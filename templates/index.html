@@ -22,39 +22,45 @@
 <div class="card" style="background:linear-gradient(180deg,#fbfcfe 0%,#fff 100%);">
   <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.4rem;">
     <h2 style="margin-bottom:0;">Here's exactly what you'll get</h2>
-    <span style="color:#999;font-size:0.82rem;">Real example · 4-slide .pptx</span>
+    <span style="color:#999;font-size:0.82rem;">Real example · 5-slide .pptx</span>
   </div>
   <p style="color:#777;font-size:0.9rem;margin-bottom:1.5rem;">
     A finished, RingCentral-branded PowerPoint — built automatically from your upload. Sample below:
   </p>
 
-  <!-- Hero slide: the headline -->
-  <a href="{{ url_for('static', filename='examples/slide-2.png') }}" target="_blank"
+  <!-- Hero slide: the hour-by-hour miss-rate headline -->
+  <a href="{{ url_for('static', filename='examples/slide-3.png') }}" target="_blank"
      style="display:block;border-radius:10px;overflow:hidden;border:1px solid #e7eaf0;
             box-shadow:0 6px 24px rgba(6,46,92,0.12);margin-bottom:1rem;">
-    <img src="{{ url_for('static', filename='examples/slide-2.png') }}"
-         alt="Example slide: missed calls headline with hourly chart and worst-hit queues"
+    <img src="{{ url_for('static', filename='examples/slide-3.png') }}"
+         alt="Example slide: inbound miss rate by hour of day — after-hours, weekend and midday gaps"
          style="width:100%;display:block;">
   </a>
 
-  <!-- The other three slides -->
-  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;">
+  <!-- The other four slides -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
     <a href="{{ url_for('static', filename='examples/slide-1.png') }}" target="_blank"
        style="display:block;border-radius:8px;overflow:hidden;border:1px solid #e7eaf0;
               box-shadow:0 2px 10px rgba(0,0,0,0.06);">
       <img src="{{ url_for('static', filename='examples/slide-1.png') }}"
            alt="Example slide: methodology" style="width:100%;display:block;">
     </a>
-    <a href="{{ url_for('static', filename='examples/slide-3.png') }}" target="_blank"
+    <a href="{{ url_for('static', filename='examples/slide-2.png') }}" target="_blank"
        style="display:block;border-radius:8px;overflow:hidden;border:1px solid #e7eaf0;
               box-shadow:0 2px 10px rgba(0,0,0,0.06);">
-      <img src="{{ url_for('static', filename='examples/slide-3.png') }}"
-           alt="Example slide: AI Receptionist opportunity signals" style="width:100%;display:block;">
+      <img src="{{ url_for('static', filename='examples/slide-2.png') }}"
+           alt="Example slide: missed calls headline" style="width:100%;display:block;">
     </a>
     <a href="{{ url_for('static', filename='examples/slide-4.png') }}" target="_blank"
        style="display:block;border-radius:8px;overflow:hidden;border:1px solid #e7eaf0;
               box-shadow:0 2px 10px rgba(0,0,0,0.06);">
       <img src="{{ url_for('static', filename='examples/slide-4.png') }}"
+           alt="Example slide: AI Receptionist opportunity signals" style="width:100%;display:block;">
+    </a>
+    <a href="{{ url_for('static', filename='examples/slide-5.png') }}" target="_blank"
+       style="display:block;border-radius:8px;overflow:hidden;border:1px solid #e7eaf0;
+              box-shadow:0 2px 10px rgba(0,0,0,0.06);">
+      <img src="{{ url_for('static', filename='examples/slide-5.png') }}"
            alt="Example slide: queue-level detail" style="width:100%;display:block;">
     </a>
   </div>
