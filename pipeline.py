@@ -49,12 +49,22 @@ class QueueStats:
     vm_missed: int = 0
     abandoned: int = 0
     missed: int = 0
+    answered_under_60: int = 0   # answered calls with talk time < 60s
     tier: str = ""             # A / B / C / D, assigned later
     classification: str = ""   # human-readable label, assigned later
 
     @property
     def total_missed(self) -> int:
         return self.vm_abandoned + self.vm_missed + self.abandoned + self.missed
+
+    @property
+    def abandoned_total(self) -> int:
+        """Callers who waited in queue then hung up (abandoned + abandoned-to-VM)."""
+        return self.abandoned + self.vm_abandoned
+
+    @property
+    def abandon_rate(self) -> float:
+        return self.abandoned_total / self.inbound if self.inbound else 0.0
 
     @property
     def miss_rate(self) -> float:
@@ -87,6 +97,9 @@ class PipelineResult:
     hourly_missed: dict[int, int]  # hour(7..17) -> missed count
     days_in_period: int
 
+    # AIR opportunity signals (Ricky Love expansion)
+    answered_under_60: int = 0     # answered calls with talk time < 60s
+
     queue_stats: dict[str, QueueStats] = field(default_factory=dict)
     reporting_period: str = ""
     reconciliation_ok: bool = True
@@ -100,6 +113,16 @@ class PipelineResult:
     @property
     def voicemail_total(self) -> int:
         return self.vm_abandoned + self.vm_missed
+
+    @property
+    def abandoned_total(self) -> int:
+        """Callers who waited in queue then hung up (abandoned + abandoned-to-VM)."""
+        return self.vm_abandoned + self.abandoned
+
+    @property
+    def under_60_pct(self) -> float:
+        """Share of answered calls that were under 60s of talk time."""
+        return self.answered_under_60 / self.answered if self.answered else 0.0
 
     @property
     def miss_rate(self) -> float:
@@ -206,6 +229,7 @@ def parse_sessions(path: Path) -> pd.DataFrame:
         group = group.sort_values("_row_order")
         outcome = _classify_session(group)
         max_call = group["_call_seconds"].max()
+        handle_seconds = float(group["_handle_seconds"].max())
         entry_queue = group.iloc[0]["Queue"]
         entry_queue = str(entry_queue).strip() if pd.notna(entry_queue) else ""
         # prefer first non-blank queue for attribution
@@ -229,6 +253,7 @@ def parse_sessions(path: Path) -> pd.DataFrame:
             "session_id": session_id,
             "outcome": outcome,
             "queue": entry_queue,
+            "handle_seconds": handle_seconds,
             "is_spam": max_call <= SPAM_MAX_SECONDS,
             "start_time": start_time,
             "from_number": from_number,
@@ -274,6 +299,14 @@ def build_result(sdf: pd.DataFrame, queue_tiers: dict[str, dict]) -> PipelineRes
     total_missed = vm_abandoned + vm_missed + abandoned + missed
     missed_df = universe[universe["outcome"] != OUTCOME_ANSWERED]
 
+    # Answered calls with under 60s talk time (AIR-solvable "basic" calls)
+    answered_df = universe[universe["outcome"] == OUTCOME_ANSWERED]
+    if "handle_seconds" in answered_df.columns:
+        answered_under_60 = int(((answered_df["handle_seconds"] > 0)
+                                 & (answered_df["handle_seconds"] < 60)).sum())
+    else:
+        answered_under_60 = 0
+
     # Business hours miss %
     bh_miss = int(missed_df["in_business_hours"].sum())
     business_hours_miss_pct = bh_miss / total_missed if total_missed else 0.0
@@ -314,6 +347,9 @@ def build_result(sdf: pd.DataFrame, queue_tiers: dict[str, dict]) -> PipelineRes
         o = row["outcome"]
         if o == OUTCOME_ANSWERED:
             qs.answered += 1
+            hs = row.get("handle_seconds", 0) or 0
+            if 0 < hs < 60:
+                qs.answered_under_60 += 1
         elif o == OUTCOME_VM_ABANDONED:
             qs.vm_abandoned += 1
         elif o == OUTCOME_VM_MISSED:
@@ -344,6 +380,7 @@ def build_result(sdf: pd.DataFrame, queue_tiers: dict[str, dict]) -> PipelineRes
         repeat_callers=repeat_callers,
         hourly_missed=hourly_missed,
         days_in_period=days_in_period,
+        answered_under_60=answered_under_60,
         queue_stats=queue_stats,
         reporting_period=reporting_period,
         reconciliation_ok=recon_ok,

@@ -306,6 +306,96 @@ def _worst_table(s, queues, x, y, w):
 
 
 # ---------------------------------------------------------------------------
+# Slide 3 — AIR opportunity signals (abandoned + sub-60s answered)
+# ---------------------------------------------------------------------------
+
+def _slide3(prs, r: PipelineResult, ctx, narr):
+    s = prs.slides.add_slide(prs.slide_layouts[6])
+    _logo(s)
+    _title_block(s, narr.get("title", "Where AI Receptionist captures revenue today"),
+                 narr.get("subtitle", ""))
+
+    abandon_rate = r.abandoned_total / r.universe_sessions if r.universe_sessions else 0
+
+    # Two stacked stat cards on the left
+    lx, lw = Inches(0.5), Inches(4.15)
+    # Card A — abandoned callers
+    ay, ah = Inches(1.95), Inches(2.25)
+    _rect(s, lx, ay, lw, ah, WHITE, line=CARD_BORDER, radius=True)
+    _text(s, "CALLERS WHO WAITED,\nTHEN HUNG UP", lx + Inches(0.25), ay + Inches(0.22),
+          lw - Inches(0.5), Inches(0.6), size=12, bold=True, color=GRAY, font="Arial")
+    _text(s, f"{r.abandoned_total:,}", lx + Inches(0.2), ay + Inches(0.78), lw - Inches(0.3), Inches(1.0),
+          size=58, bold=True, color=RC_RED, font="Arial")
+    _rich(s, [[(f"{abandon_rate*100:.1f}%", {"bold": True, "size": 12, "color": DARK}),
+               (" of inbound queue calls were abandoned in queue", {"size": 12, "color": GRAY})]],
+          lx + Inches(0.25), ay + Inches(1.78), lw - Inches(0.5), Inches(0.4))
+
+    # Card B — answered under 60s
+    by, bh = Inches(4.4), Inches(2.25)
+    _rect(s, lx, by, lw, bh, WHITE, line=CARD_BORDER, radius=True)
+    _text(s, "ANSWERED CALLS UNDER\n60 SECONDS", lx + Inches(0.25), by + Inches(0.22),
+          lw - Inches(0.5), Inches(0.6), size=12, bold=True, color=GRAY, font="Arial")
+    _text(s, f"{r.answered_under_60:,}", lx + Inches(0.2), by + Inches(0.78), lw - Inches(0.3), Inches(1.0),
+          size=58, bold=True, color=RC_ORANGE, font="Arial")
+    _rich(s, [[(f"{r.under_60_pct*100:.0f}%", {"bold": True, "size": 12, "color": DARK}),
+               (" of answered calls — short, routine calls AIR can handle", {"size": 12, "color": GRAY})]],
+          lx + Inches(0.25), by + Inches(1.78), lw - Inches(0.5), Inches(0.4))
+
+    # Right — most-abandoned queues table
+    rx = Inches(5.0)
+    _text(s, "Where callers give up — most-abandoned queues", rx, Inches(1.95),
+          Inches(7.8), Inches(0.35), size=14, bold=True, color=DARK, font="Arial")
+    top_ab = sorted((q for q in r.queue_stats.values() if q.abandoned_total > 0),
+                    key=lambda q: q.abandoned_total, reverse=True)[:12]
+    _abandon_table(s, top_ab, rx, Inches(2.4), Inches(7.85))
+
+    # Takeaway strip
+    _rect(s, Inches(0.5), Inches(6.85), Inches(12.33), Pt(0.5), CARD_BORDER)
+    _text(s, "AI Receptionist answers instantly — recovering abandoned callers and "
+             "deflecting short, routine calls so staff focus on revenue conversations.",
+          Inches(0.5), Inches(6.92), Inches(12.3), Inches(0.4),
+          size=11, italic=True, color=RC_BLUE, align=PP_ALIGN.CENTER)
+    _footer(s, 3)
+
+
+def _abandon_table(s, queues, x, y, w):
+    rows = len(queues) + 1
+    row_in = 0.34
+    tbl_shape = s.shapes.add_table(rows, 5, x, y, w, Inches(row_in * rows))
+    tbl = tbl_shape.table
+    tbl.first_row = False
+    tbl.horz_banding = False
+    widths = [4.05, 0.7, 1.2, 0.9, 1.0]
+    for j, ww in enumerate(widths):
+        tbl.columns[j].width = Inches(ww)
+    for i in range(rows):
+        tbl.rows[i].height = Inches(row_in)
+    headers = ["Queue", "Tier", "Abandoned", "Ab. %", "Ans. <60s"]
+    for j, htext in enumerate(headers):
+        c = tbl.cell(0, j)
+        c.fill.solid(); c.fill.fore_color.rgb = RC_NAVY
+        _cell(c, htext, WHITE, bold=True, size=9,
+              align=PP_ALIGN.LEFT if j == 0 else PP_ALIGN.CENTER)
+    tier_col = {"A": RC_RED, "B": RC_GOLD, "C": RC_BLUE}
+    for i, q in enumerate(queues, 1):
+        bg = ROW_ALT if i % 2 else WHITE
+        vals = [q.name[:40], q.tier, f"{q.abandoned_total:,}",
+                f"{round(q.abandon_rate*100)}%", f"{q.answered_under_60:,}"]
+        for j, v in enumerate(vals):
+            c = tbl.cell(i, j)
+            c.fill.solid(); c.fill.fore_color.rgb = bg
+            if j == 1:
+                col = tier_col.get(q.tier, DARK); bold = True
+            elif j == 3:
+                col = RC_RED if q.abandon_rate >= 0.5 else DARK
+                bold = q.abandon_rate >= 0.5
+            else:
+                col = DARK; bold = False
+            _cell(c, v, col, bold=bold, size=9,
+                  align=PP_ALIGN.LEFT if j == 0 else PP_ALIGN.CENTER)
+
+
+# ---------------------------------------------------------------------------
 # Slide 4 — queue-level table
 # ---------------------------------------------------------------------------
 
@@ -442,6 +532,9 @@ def build_deck(result: PipelineResult, run_id: str, customer: str, ae_name: str,
         "business_hours_miss_pct": round(result.business_hours_miss_pct * 100),
         "repeat_callers": result.repeat_callers,
         "misses_per_day": round(result.misses_per_day),
+        "abandoned_total": result.abandoned_total,
+        "answered_under_60": result.answered_under_60,
+        "under_60_pct": round(result.under_60_pct * 100),
         "sales_queue_missed": sales_queue_calls,
         "num_queues": len(result.queue_stats),
         "top_missed_queues": {q.name: q.total_missed for q in top_queues},
@@ -449,6 +542,8 @@ def build_deck(result: PipelineResult, run_id: str, customer: str, ae_name: str,
 
     narr1 = _narr1(ctx, prior_instructions)
     narr2 = _narr_titles(ctx, prior_instructions, "slide2")
+    narr3 = {"title": "Where AI Receptionist captures revenue today",
+             "subtitle": f"Abandoned-in-queue callers and short routine calls · Tier A+B+C · {result.reporting_period}"}
     narr4 = {"title": "Queue-level missed call analysis (Tier A+B+C)",
              "subtitle": f"Session-deduplicated · spam-filtered · {result.reporting_period} · back-office (Tier D) excluded · {len(result.queue_stats)} queues shown"}
 
@@ -458,6 +553,7 @@ def build_deck(result: PipelineResult, run_id: str, customer: str, ae_name: str,
 
     _slide1(prs, result, ctx, narr1)
     _slide2(prs, result, ctx, narr2, sales_queue_calls)
+    _slide3(prs, result, ctx, narr3)
     _slide4(prs, result, ctx, narr4)
 
     prs.save(out_path)
