@@ -90,16 +90,19 @@
 
     <!-- Steps -->
     <ol style="padding-left:1.4rem;line-height:1.85;color:#444;font-size:0.9rem;margin-top:1rem;">
-      <li>In analytics, open <strong>Performance Reports</strong> (sometimes shown as
-          “Analytics → Performance Reports”).</li>
-      <li>Select the <strong>Calls</strong> report / tab — this is the call-by-call detail,
-          <em>not</em> the summary KPI view.</li>
-      <li>Set the <strong>date range</strong> you want to analyze (e.g. a full calendar month).</li>
-      <li>Make sure the view is at <strong>call detail</strong> level (one row per call leg),
-          and that <strong>Queues / Call Queues</strong> are included — not filtered out.</li>
-      <li>Click <strong>Download / Export</strong> and choose <strong>Excel (.xlsx)</strong>.</li>
-      <li>Upload that file above. The tool does the rest — de-duplication, spam filtering,
-          and queue tiering are all automatic.</li>
+      <li>In the left sidebar, open <strong>Analytics → Performance Reports</strong>.</li>
+      <li>At the top, click the <strong>Calls</strong> tab (next to Queues / Users / Meetings).
+          This is the call-by-call detail view — you'll see a <em>“Total … Sessions”</em> count above the table.</li>
+      <li>Click the <strong>date pill</strong> at the top (it says “Yesterday” by default) and pick your
+          range — e.g. <strong>Last Month</strong>, or use <strong>Custom Range</strong> for an exact
+          window — then click <strong>Done</strong>.</li>
+      <li>Leave the filter dropdowns at their defaults so nothing is excluded:
+          <strong>Call Type</strong> = All Types, <strong>Queue Calls</strong> = All Calls,
+          <strong>Call Length</strong> = All Length, <strong>Site Calls</strong> = all sites.
+          (To focus on specific call queues, use the first dropdown →
+          <strong>Queues</strong> tab and select them.)</li>
+      <li>Click <strong>Download</strong> (top-right) and choose <strong>Excel</strong>.</li>
+      <li>Upload that file above. De-duplication, spam filtering, and queue tiering are all automatic.</li>
     </ol>
 
     <!-- Required columns -->
@@ -117,15 +120,15 @@
         <strong>Recommended:</strong> Handle Time · Call Start Time · From Number
       </div>
       <p style="color:#888;font-size:0.8rem;line-height:1.5;margin:0.55rem 0 0;">
-        If a download option lets you pick columns, include all eight. If the export is missing a
-        required column, the tool will tell you which one on the next screen.
+        The Calls tab already includes these (From, Result, Length, Handle Time, Start Time, Queue,
+        Direction). If you see a <strong>Select Columns</strong> option, make sure all eight are checked.
+        If the export is missing a required column, the tool will tell you which one on the next screen.
       </p>
     </div>
 
     <p style="color:#aaa;font-size:0.78rem;line-height:1.5;margin-top:0.9rem;margin-bottom:0;">
-      Note: menu labels in analytics.ringcentral.com vary by account and change over time. The steps
-      above are the standard path — if a label differs, look for the equivalent
-      <em>Calls detail report → Export to Excel</em>.
+      Tip: the export is one row per <em>call leg</em> — this tool automatically de-duplicates those
+      into one row per call (session), so you don't need to clean anything up first.
     </p>
   </details>
 </div>
