@@ -97,20 +97,17 @@ def configure(run_id):
         return redirect(url_for("index"))
 
     if request.method == "POST":
+        customer = request.form.get("customer", "").strip()
         ae_name = request.form.get("ae_name", "").strip()
-        avg_deal = request.form.get("avg_deal_value", "").strip()
-        close_rate = request.form.get("close_rate", "").strip()
+        reporting_period = request.form.get("reporting_period", "").strip()
 
-        try:
-            avg_deal_val = float(avg_deal.replace(",", "").replace("$", ""))
-            close_rate_val = float(close_rate.replace("%", "")) / 100
-        except ValueError:
-            flash("Please enter valid numbers for deal value and close rate.")
+        if not customer or not ae_name:
+            flash("Please enter the customer name and your name.")
             return redirect(url_for("configure", run_id=run_id))
 
+        session["customer"] = customer
         session["ae_name"] = ae_name
-        session["avg_deal_value"] = avg_deal_val
-        session["close_rate"] = close_rate_val
+        session["reporting_period"] = reporting_period
 
         return redirect(url_for("generate", run_id=run_id))
 
@@ -149,28 +146,37 @@ def api_process(run_id):
     if not upload_path.exists():
         return jsonify({"error": "Uploaded file not found."}), 404
 
-    from pipeline import parse_report
-    from deck import build_deck
-
     try:
-        results = parse_report(upload_path)
-    except Exception as e:
-        return jsonify({"error": f"Data pipeline error: {e}"}), 500
-
-    try:
-        pptx_path = build_deck(
-            results=results,
-            run_id=run_id,
-            ae_name=session.get("ae_name", ""),
-            avg_deal_value=session.get("avg_deal_value", 0),
-            close_rate=session.get("close_rate", 0),
-            prior_instructions=session.get("messages", []),
-        )
+        pptx_path = _run_pipeline_and_build(run_id, upload_path, session.get("messages", []))
         session["pptx_path"] = str(pptx_path)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
-        return jsonify({"error": f"Deck generation error: {e}"}), 500
+        return jsonify({"error": f"Processing error: {e}"}), 500
 
     return jsonify({"ok": True, "download_url": url_for("download", run_id=run_id)})
+
+
+def _run_pipeline_and_build(run_id, upload_path, messages):
+    from pipeline import parse_sessions, build_result, distinct_queues
+    from claude_client import classify_queues
+    from deck import build_deck
+
+    sdf = parse_sessions(upload_path)
+    tiers = classify_queues(distinct_queues(sdf))
+    result = build_result(sdf, tiers)
+
+    override_period = session.get("reporting_period", "").strip()
+    if override_period:
+        result.reporting_period = override_period
+
+    return build_deck(
+        result=result,
+        run_id=run_id,
+        customer=session.get("customer", ""),
+        ae_name=session.get("ae_name", ""),
+        prior_instructions=messages,
+    )
 
 
 @app.route("/download/<run_id>")
@@ -215,19 +221,8 @@ def api_refine(run_id):
     if not upload_path.exists():
         return jsonify({"error": "Uploaded file not found."}), 404
 
-    from pipeline import parse_report
-    from deck import build_deck
-
     try:
-        results = parse_report(upload_path)
-        pptx_path = build_deck(
-            results=results,
-            run_id=run_id,
-            ae_name=session.get("ae_name", ""),
-            avg_deal_value=session.get("avg_deal_value", 0),
-            close_rate=session.get("close_rate", 0),
-            prior_instructions=messages,
-        )
+        pptx_path = _run_pipeline_and_build(run_id, upload_path, messages)
         session["pptx_path"] = str(pptx_path)
     except Exception as e:
         return jsonify({"error": str(e)}), 500

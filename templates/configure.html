@@ -4,28 +4,28 @@
 <p class="subtitle">File: <strong>{{ filename }}</strong></p>
 
 <div class="card">
-  <h2>Your inputs</h2>
+  <h2>Deck details</h2>
   <p style="color:#666;font-size:0.9rem;margin-bottom:1.5rem;">
-    These numbers come from you — the tool will never invent or assume deal values or close rates.
+    The analysis is derived entirely from your uploaded file. These details just label the deck.
   </p>
   <form method="POST">
-    <label for="ae_name">Your name (AE / SE)</label>
-    <input type="text" id="ae_name" name="ae_name" placeholder="e.g. Jane Smith" required>
+    <label for="customer">Customer / prospect name</label>
+    <input type="text" id="customer" name="customer" placeholder="e.g. FBM" required>
 
     <div class="form-row">
       <div>
-        <label for="avg_deal_value">Average deal value ($)</label>
-        <input type="text" id="avg_deal_value" name="avg_deal_value" placeholder="e.g. 25000" required>
+        <label for="ae_name">Your name (AE / SE)</label>
+        <input type="text" id="ae_name" name="ae_name" placeholder="e.g. Jane Smith" required>
       </div>
       <div>
-        <label for="close_rate">Close rate on answered inbound (%)</label>
-        <input type="text" id="close_rate" name="close_rate" placeholder="e.g. 12" required>
+        <label for="reporting_period">Reporting period <span style="font-weight:400;color:#999;">(optional)</span></label>
+        <input type="text" id="reporting_period" name="reporting_period" placeholder="auto-detected from data">
       </div>
     </div>
 
     <p style="font-size:0.82rem;color:#888;margin-bottom:1.2rem;">
-      The deck will label every assumption with your name so nothing reads as a RingCentral-asserted fact.
-      Revenue is shown as a low / mid / high range, never a single number.
+      Leave the period blank to auto-detect it from the call dates. Queue tiers (Sales / Retail / Branch / Back-office)
+      are classified automatically; back-office queues are excluded from the analysis.
     </p>
 
     <button type="submit" class="btn btn-primary">Generate deck →</button>
