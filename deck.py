@@ -546,6 +546,314 @@ def _full_table(s, queues, x, y, w):
 
 
 # ---------------------------------------------------------------------------
+# ROI model (assumptions are clearly labelled on the slides)
+# ---------------------------------------------------------------------------
+
+# AIR usage pricing
+AIR_RATE_PER_MIN = 0.20
+# Staffing-equivalent productivity (calls handled per agent per year)
+CALLS_PER_FTE_EFFICIENT = 41_000   # busy, well-run inbound desk -> fewer FTEs
+CALLS_PER_FTE_LEAN = 23_000        # realistic everyday throughput -> more FTEs
+COST_PER_FTE = 50_000              # fully-loaded annual cost per agent
+# Revenue assumptions
+AVG_ORDER_VALUE = 500              # $ per recovered order (editable assumption)
+CAPTURE_RATES = [0.02, 0.05, 0.10]
+
+
+def _roi_model(r: PipelineResult) -> dict:
+    days = r.days_in_period or 30
+    per_day_missed = r.total_missed / days
+    missed_per_year = per_day_missed * 365
+    missed_per_month = per_day_missed * 30.4
+    inbound_per_month = (r.universe_sessions / days) * 30.4
+
+    # AIR fields every inbound call; minutes = calls x avg talk minutes
+    air_minutes_month = inbound_per_month * r.avg_answered_minutes
+    air_cost_month = air_minutes_month * AIR_RATE_PER_MIN
+    air_cost_year = air_cost_month * 12
+
+    # Staffing to answer every inbound call across all hours (the AIR equivalent).
+    # Sized on full inbound volume, not just the missed subset, so the comparison
+    # is like-for-like ("answer every call, 24/7").
+    inbound_per_year = (r.universe_sessions / days) * 365
+    fte_lo = inbound_per_year / CALLS_PER_FTE_EFFICIENT
+    fte_hi = inbound_per_year / CALLS_PER_FTE_LEAN
+    hire_lo = fte_lo * COST_PER_FTE
+    hire_hi = fte_hi * COST_PER_FTE
+
+    return {
+        "missed_per_year": missed_per_year,
+        "missed_per_month": missed_per_month,
+        "inbound_per_month": inbound_per_month,
+        "air_minutes_month": air_minutes_month,
+        "air_cost_month": air_cost_month,
+        "air_cost_year": air_cost_year,
+        "fte_lo": fte_lo,
+        "fte_hi": fte_hi,
+        "hire_lo": hire_lo,
+        "hire_hi": hire_hi,
+    }
+
+
+def _money(v) -> str:
+    v = float(v)
+    if abs(v) >= 1_000_000:
+        return f"${v/1_000_000:.1f}M"
+    if abs(v) >= 1_000:
+        return f"${round(v/1_000)}K"
+    return f"${round(v)}"
+
+
+# ---------------------------------------------------------------------------
+# Slide 6 — AIR capability mapping
+# ---------------------------------------------------------------------------
+
+def _slide_capabilities(prs, r: PipelineResult, ctx, narr):
+    s = prs.slides.add_slide(prs.slide_layouts[6])
+    _logo(s)
+    _title_block(s, narr.get("title", "AI Receptionist answers every call"),
+                 narr.get("subtitle", "Always-on coverage for the exact gaps in your data — no ring-out, no voicemail dead-ends"))
+
+    cards = [
+        ("Answers 24/7", "Every call picked up instantly — after hours, weekends, and holidays, the windows where your miss rate is highest."),
+        ("Zero hold, zero abandon", "No queue wait means callers stop hanging up — the abandoned-in-queue callers are captured, not lost."),
+        ("Handles routine calls", "Hours, locations, order status, basic questions — the short, sub-60-second calls — resolved without a human."),
+        ("Qualifies & routes", "Understands intent, captures lead details, and warm-routes revenue conversations to the right queue or rep."),
+        ("Captures every lead", "Name, number, and reason logged on every interaction — even when no one is available to take it live."),
+        ("Scales with no hiring", "Add unlimited concurrent calls across all branches without recruiting, training, or overtime."),
+    ]
+    cw, chh = Inches(4.05), Inches(1.95)
+    gx, gy = Inches(0.5), Inches(0.55)
+    xs = [Inches(0.5), Inches(4.68), Inches(8.86)]
+    ys = [Inches(2.0), Inches(4.15)]
+    for idx, (title, body) in enumerate(cards):
+        cx = xs[idx % 3]; cy = ys[idx // 3]
+        _rect(s, cx, cy, cw, chh, WHITE, line=CARD_BORDER, radius=True)
+        _rect(s, cx, cy, Inches(0.12), chh, RC_ORANGE)
+        _text(s, title, cx + Inches(0.32), cy + Inches(0.2), cw - Inches(0.5), Inches(0.4),
+              size=16, bold=True, color=RC_BLUE, font="Arial")
+        _text(s, body, cx + Inches(0.32), cy + Inches(0.72), cw - Inches(0.55), Inches(1.1),
+              size=11.5, color=GRAY, line_spacing=1.1)
+    _footer(s, 6)
+
+
+# ---------------------------------------------------------------------------
+# Slide 7 — far cheaper than hiring
+# ---------------------------------------------------------------------------
+
+def _slide_cost(prs, r: PipelineResult, ctx, narr):
+    s = prs.slides.add_slide(prs.slide_layouts[6])
+    _logo(s)
+    m = ctx["roi"]
+    _title_block(s, narr.get("title", "Far cheaper than hiring to close the gap"),
+                 narr.get("subtitle", "To answer every inbound call across all hours by hand vs. letting AIR field every call"))
+
+    # Left card — hire staff
+    lx, lw = Inches(0.5), Inches(5.9)
+    ly, lh = Inches(2.05), Inches(4.1)
+    _rect(s, lx, ly, lw, lh, RGBColor(0xFC, 0xEC, 0xEC), line=RC_RED, line_w=Pt(1.25), radius=True)
+    _text(s, "OPTION A · HIRE STAFF", lx + Inches(0.35), ly + Inches(0.28), lw - Inches(0.7), Inches(0.4),
+          size=13, bold=True, color=RC_RED, font="Arial")
+    _text(s, f"{_money(m['hire_lo'])}–{_money(m['hire_hi'])}",
+          lx + Inches(0.3), ly + Inches(0.78), lw - Inches(0.6), Inches(1.0),
+          size=46, bold=True, color=RC_RED, font="Arial")
+    _text(s, "per year, fully loaded", lx + Inches(0.35), ly + Inches(1.78), lw - Inches(0.7), Inches(0.35),
+          size=13, color=GRAY)
+    _rich(s, [
+        [(f"{max(1, round(m['fte_lo']))}–{max(2, round(m['fte_hi']))} full-time agents", {"bold": True, "size": 13, "color": DARK}),
+         ("  for round-the-clock coverage", {"size": 12, "color": GRAY})],
+        [("• Recruiting, training, turnover, overtime", {"size": 12, "color": GRAY})],
+        [("• Still no coverage at 2am or on Sundays", {"size": 12, "color": GRAY})],
+        [("• Capacity is fixed — spikes still ring out", {"size": 12, "color": GRAY})],
+    ], lx + Inches(0.35), ly + Inches(2.35), lw - Inches(0.7), Inches(1.6), line_spacing=1.15, space_after=7)
+
+    # Right card — AIR
+    rx = Inches(6.9)
+    _rect(s, rx, ly, lw, lh, RGBColor(0xE9, 0xEE, 0xF6), line=RC_BLUE, line_w=Pt(1.25), radius=True)
+    _text(s, "OPTION B · AI RECEPTIONIST", rx + Inches(0.35), ly + Inches(0.28), lw - Inches(0.7), Inches(0.4),
+          size=13, bold=True, color=RC_BLUE, font="Arial")
+    _text(s, f"{_money(m['air_cost_year'])}",
+          rx + Inches(0.3), ly + Inches(0.78), lw - Inches(0.6), Inches(1.0),
+          size=46, bold=True, color=RC_BLUE, font="Arial")
+    _text(s, f"per year (~{_money(m['air_cost_month'])}/mo usage)", rx + Inches(0.35), ly + Inches(1.78), lw - Inches(0.7), Inches(0.35),
+          size=13, color=GRAY)
+    _rich(s, [
+        [("Answers 100% of calls", {"bold": True, "size": 13, "color": DARK}),
+         (" — every hour, every day", {"size": 12, "color": GRAY})],
+        [("• No recruiting, training, or turnover", {"size": 12, "color": GRAY})],
+        [("• Full nights / weekends / holidays coverage", {"size": 12, "color": GRAY})],
+        [("• Unlimited concurrent calls, all branches", {"size": 12, "color": GRAY})],
+    ], rx + Inches(0.35), ly + Inches(2.35), lw - Inches(0.7), Inches(1.6), line_spacing=1.15, space_after=7)
+
+    _text(s, f"Assumes ~{round(m['air_minutes_month']):,} AIR minutes/mo at ${AIR_RATE_PER_MIN:.2f}/min "
+             f"and ~${COST_PER_FTE/1000:.0f}K fully-loaded per agent. Edit assumptions to fit the account.",
+          Inches(0.5), Inches(6.45), Inches(12.33), Inches(0.4),
+          size=10, italic=True, color=GRAY, align=PP_ALIGN.CENTER)
+    _footer(s, 7)
+
+
+# ---------------------------------------------------------------------------
+# Slide 8 — recovered revenue
+# ---------------------------------------------------------------------------
+
+def _slide_revenue(prs, r: PipelineResult, ctx, narr):
+    s = prs.slides.add_slide(prs.slide_layouts[6])
+    _logo(s)
+    m = ctx["roi"]
+    _title_block(s, narr.get("title", "The ROI: missed calls become recovered orders"),
+                 narr.get("subtitle", f"{round(m['missed_per_year']):,} revenue-relevant missed calls/year (spam already removed) · ${AVG_ORDER_VALUE} avg order value"))
+
+    # Funnel strip
+    fy = Inches(1.95)
+    steps = [
+        (f"{round(m['missed_per_year']):,}", "missed calls / year", RC_RED),
+        (f"{round(m['missed_per_month']):,}", "missed calls / month", RC_GOLD),
+        ("× capture %", "convert to orders", RC_BLUE),
+        ("= recovered $", "added revenue", RC_ORANGE),
+    ]
+    sw = Inches(3.0); sx = Inches(0.5)
+    for big, lab, col in steps:
+        _rect(s, sx, fy, sw, Inches(0.95), WHITE, line=CARD_BORDER, radius=True)
+        _text(s, big, sx + Inches(0.2), fy + Inches(0.12), sw - Inches(0.4), Inches(0.5),
+              size=24, bold=True, color=col, font="Arial")
+        _text(s, lab, sx + Inches(0.2), fy + Inches(0.62), sw - Inches(0.4), Inches(0.3),
+              size=11, color=GRAY)
+        sx = Emu(int(sx) + int(sw) + int(Inches(0.11)))
+
+    # Recovered-revenue table by capture rate
+    _text(s, "Annual recovered revenue by capture rate", Inches(0.5), Inches(3.25),
+          Inches(12.3), Inches(0.35), size=14, bold=True, color=DARK, font="Arial")
+    _revenue_table(s, m, Inches(0.5), Inches(3.7), Inches(12.33))
+
+    # Headline takeaway (5% capture)
+    rec5 = 0.05 * m["missed_per_year"] * AVG_ORDER_VALUE
+    _rect(s, Inches(0.5), Inches(6.25), Inches(12.33), Inches(0.7), RC_BLUE, radius=True)
+    _rich(s, [[
+        (f"{_money(rec5)} recovered/year ", {"bold": True, "size": 17, "color": WHITE, "font": "Arial"}),
+        (f"at just 5% capture and ${AVG_ORDER_VALUE}/order — against ", {"size": 14, "color": RGBColor(0xCD,0xD9,0xEA)}),
+        (f"{_money(m['air_cost_year'])} ", {"bold": True, "size": 17, "color": RC_ORANGE, "font": "Arial"}),
+        ("of AIR investment.", {"size": 14, "color": RGBColor(0xCD,0xD9,0xEA)}),
+    ]], Inches(0.7), Inches(6.4), Inches(12.0), Inches(0.45), anchor=MSO_ANCHOR.MIDDLE, align=PP_ALIGN.CENTER)
+    _footer(s, 8)
+
+
+def _revenue_table(s, m, x, y, w):
+    aovs = [250, 500, 1000]
+    rows = len(CAPTURE_RATES) + 1
+    cols = len(aovs) + 1
+    row_in = 0.55
+    tbl_shape = s.shapes.add_table(rows, cols, x, y, w, Inches(row_in * rows))
+    tbl = tbl_shape.table
+    tbl.first_row = False
+    tbl.horz_banding = False
+    tbl.columns[0].width = Inches(3.33)
+    for j in range(1, cols):
+        tbl.columns[j].width = Inches(3.0)
+    for i in range(rows):
+        tbl.rows[i].height = Inches(row_in)
+    # header
+    _cell(tbl.cell(0, 0), "Capture rate  ╲  Avg order value", WHITE, bold=True, size=11)
+    tbl.cell(0, 0).fill.solid(); tbl.cell(0, 0).fill.fore_color.rgb = RC_NAVY
+    for j, aov in enumerate(aovs, 1):
+        c = tbl.cell(0, j)
+        c.fill.solid(); c.fill.fore_color.rgb = RC_NAVY
+        _cell(c, f"${aov}/order", WHITE, bold=True, size=11, align=PP_ALIGN.CENTER)
+    for i, cap in enumerate(CAPTURE_RATES, 1):
+        c0 = tbl.cell(i, 0)
+        c0.fill.solid(); c0.fill.fore_color.rgb = ROW_ALT if i % 2 else WHITE
+        _cell(c0, f"{round(cap*100)}% of missed calls", DARK, bold=True, size=12)
+        for j, aov in enumerate(aovs, 1):
+            rec = cap * m["missed_per_year"] * aov
+            c = tbl.cell(i, j)
+            highlight = (cap == 0.05 and aov == 500)
+            c.fill.solid()
+            c.fill.fore_color.rgb = RGBColor(0xFF, 0xF1, 0xE3) if highlight else (ROW_ALT if i % 2 else WHITE)
+            _cell(c, _money(rec), RC_ORANGE if highlight else DARK,
+                  bold=highlight, size=13 if highlight else 12, align=PP_ALIGN.CENTER)
+
+
+# ---------------------------------------------------------------------------
+# Slide 9 — rollout investment
+# ---------------------------------------------------------------------------
+
+def _slide_investment(prs, r: PipelineResult, ctx, narr):
+    s = prs.slides.add_slide(prs.slide_layouts[6])
+    _logo(s)
+    m = ctx["roi"]
+    _title_block(s, narr.get("title", "The investment to roll out companywide"),
+                 narr.get("subtitle", "Simple usage-based pricing — pay for minutes AIR actually handles, nothing to install"))
+
+    tiles = [
+        (f"${AIR_RATE_PER_MIN:.2f}", "per AIR minute", RC_BLUE),
+        (f"{round(m['air_minutes_month']):,}", "AIR minutes / month", RC_BLUE),
+        (f"{_money(m['air_cost_month'])}", "per month", RC_ORANGE),
+        (f"{_money(m['air_cost_year'])}", "per year", RC_ORANGE),
+    ]
+    tw = Inches(3.0); tx = Inches(0.5); ty = Inches(2.15)
+    for big, lab, col in tiles:
+        _rect(s, tx, ty, tw, Inches(1.75), WHITE, line=CARD_BORDER, radius=True)
+        _text(s, big, tx + Inches(0.2), ty + Inches(0.35), tw - Inches(0.4), Inches(0.75),
+              size=38, bold=True, color=col, font="Arial", align=PP_ALIGN.CENTER)
+        _text(s, lab, tx + Inches(0.2), ty + Inches(1.2), tw - Inches(0.4), Inches(0.4),
+              size=13, color=GRAY, align=PP_ALIGN.CENTER)
+        tx = Emu(int(tx) + int(tw) + int(Inches(0.11)))
+
+    # Included benefits band
+    by = Inches(4.35)
+    _rect(s, Inches(0.5), by, Inches(12.33), Inches(1.7), RGBColor(0xE9, 0xEE, 0xF6), line=RC_BLUE, line_w=Pt(1), radius=True)
+    _text(s, "Included at no extra cost", Inches(0.8), by + Inches(0.22), Inches(11.7), Inches(0.4),
+          size=15, bold=True, color=RC_BLUE, font="Arial")
+    _rich(s, [
+        [("✓  Free implementation & configuration", {"bold": True, "size": 13, "color": DARK})],
+        [("✓  First 4 months of usage free", {"bold": True, "size": 13, "color": DARK})],
+    ], Inches(0.8), by + Inches(0.72), Inches(5.8), Inches(0.9), line_spacing=1.2, space_after=6)
+    _rich(s, [
+        [("✓  No hardware, no on-prem install", {"bold": True, "size": 13, "color": DARK})],
+        [("✓  Scales to every branch, no hiring", {"bold": True, "size": 13, "color": DARK})],
+    ], Inches(6.9), by + Inches(0.72), Inches(5.8), Inches(0.9), line_spacing=1.2, space_after=6)
+
+    _text(s, f"Usage estimate derived from {round(m['inbound_per_month']):,} inbound calls/mo × "
+             f"~{r.avg_answered_minutes:.1f} min avg talk time. Final pricing per signed order.",
+          Inches(0.5), Inches(6.3), Inches(12.33), Inches(0.4),
+          size=10, italic=True, color=GRAY, align=PP_ALIGN.CENTER)
+    _footer(s, 9)
+
+
+# ---------------------------------------------------------------------------
+# Slide 10 — recommendation & next steps
+# ---------------------------------------------------------------------------
+
+def _slide_next(prs, r: PipelineResult, ctx, narr):
+    s = prs.slides.add_slide(prs.slide_layouts[6])
+    _logo(s)
+    m = ctx["roi"]
+    _title_block(s, narr.get("title", "Recommendation & next steps"),
+                 narr.get("subtitle", "Turn the missed-call gap into recovered revenue — starting with a focused pilot"))
+
+    steps = [
+        ("Confirm the numbers", "Review this analysis with your operations team and validate the queues, volumes, and order value against your own reporting."),
+        ("Pilot on the worst gap", "Stand up AIR on the highest-miss queues and the after-hours window first — fastest, most visible recovery."),
+        ("Measure recovered calls", "Track answered-vs-missed and captured leads for 30–60 days against the baseline in this deck."),
+        ("Roll out companywide", "Expand AIR across all branches once the pilot proves capture — with free implementation and 4 months free."),
+    ]
+    y = Inches(2.05); rh = Inches(1.1); gap = Inches(0.12)
+    for i, (title, body) in enumerate(steps, 1):
+        _rect(s, Inches(0.5), y, Inches(12.33), rh, WHITE, line=CARD_BORDER, radius=True)
+        _circle(s, Inches(0.78), y + Inches(0.3), Inches(0.5), RC_ORANGE, str(i), size=18)
+        _text(s, title, Inches(1.6), y + Inches(0.16), Inches(11.0), Inches(0.4),
+              size=16, bold=True, color=RC_BLUE, font="Arial")
+        _text(s, body, Inches(1.6), y + Inches(0.56), Inches(10.9), Inches(0.5),
+              size=12, color=GRAY, line_spacing=1.05)
+        y = Emu(int(y) + int(rh) + int(gap))
+
+    rec5 = 0.05 * m["missed_per_year"] * AVG_ORDER_VALUE
+    _text(s, f"The opportunity: ~{_money(rec5)}/year in recovered revenue for ~{_money(m['air_cost_year'])} in AIR investment.",
+          Inches(0.5), Inches(6.95), Inches(12.33), Inches(0.4),
+          size=13, bold=True, italic=True, color=RC_BLUE, align=PP_ALIGN.CENTER)
+    _footer(s, 10)
+
+
+# ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
 
@@ -626,6 +934,7 @@ def build_deck(result: PipelineResult, run_id: str, customer: str, ae_name: str,
         "num_queues": len(result.queue_stats),
         "top_missed_queues": {q.name: q.total_missed for q in top_queues},
     }
+    ctx["roi"] = _roi_model(result)
 
     narr1 = _narr1(ctx, prior_instructions)
     narr2 = _narr_titles(ctx, prior_instructions, "slide2")
@@ -645,6 +954,11 @@ def build_deck(result: PipelineResult, run_id: str, customer: str, ae_name: str,
     _slide_hourly(prs, result, ctx, narr_hourly)
     _slide3(prs, result, ctx, narr3)
     _slide4(prs, result, ctx, narr4)
+    _slide_capabilities(prs, result, ctx, {})
+    _slide_cost(prs, result, ctx, {})
+    _slide_revenue(prs, result, ctx, {})
+    _slide_investment(prs, result, ctx, {})
+    _slide_next(prs, result, ctx, {})
 
     prs.save(out_path)
     return out_path

@@ -111,6 +111,9 @@ class PipelineResult:
     weekend_miss_rate: float = 0.0     # Sat/Sun volume-weighted miss rate
     midday_miss_rate: float = 0.0      # 11a-2p miss rate
 
+    # ROI model inputs
+    avg_answered_minutes: float = 3.0  # mean talk time of answered calls (minutes)
+
     queue_stats: dict[str, QueueStats] = field(default_factory=dict)
     reporting_period: str = ""
     reconciliation_ok: bool = True
@@ -318,6 +321,14 @@ def build_result(sdf: pd.DataFrame, queue_tiers: dict[str, dict]) -> PipelineRes
     else:
         answered_under_60 = 0
 
+    # Average talk time of answered calls (for AIR usage-cost model)
+    if "handle_seconds" in answered_df.columns and len(answered_df):
+        hs = answered_df["handle_seconds"]
+        hs = hs[hs > 0]
+        avg_answered_minutes = float(hs.mean() / 60.0) if len(hs) else 3.0
+    else:
+        avg_answered_minutes = 3.0
+
     # Business hours miss %
     bh_miss = int(missed_df["in_business_hours"].sum())
     business_hours_miss_pct = bh_miss / total_missed if total_missed else 0.0
@@ -435,6 +446,7 @@ def build_result(sdf: pd.DataFrame, queue_tiers: dict[str, dict]) -> PipelineRes
         weekend_miss_hi=weekend_miss_hi,
         weekend_miss_rate=weekend_miss_rate,
         midday_miss_rate=midday_miss_rate,
+        avg_answered_minutes=avg_answered_minutes,
         queue_stats=queue_stats,
         reporting_period=reporting_period,
         reconciliation_ok=recon_ok,
