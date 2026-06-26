@@ -25,14 +25,23 @@ APP_PASSWORD = os.environ["APP_PASSWORD"]
 # Auth
 # ---------------------------------------------------------------------------
 
+ALLOWED_EMAIL_DOMAIN = "ringcentral.com"
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     error = None
     if request.method == "POST":
-        if request.form.get("password") == APP_PASSWORD:
+        email = request.form.get("email", "").strip().lower()
+        password = request.form.get("password", "")
+        if not email.endswith("@" + ALLOWED_EMAIL_DOMAIN):
+            error = "Please sign in with your RingCentral email address."
+        elif password == APP_PASSWORD:
             session["authed"] = True
+            session["user_email"] = email
             return redirect(url_for("index"))
-        error = "Incorrect password."
+        else:
+            error = "Incorrect email or password."
     return render_template("login.html", error=error)
 
 
