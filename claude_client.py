@@ -26,50 +26,97 @@ def _extract_json(text: str) -> dict | list:
         text = text.split("```")[1]
         if text.lstrip().startswith("json"):
             text = text.lstrip()[4:]
-    return json.loads(text)
+    text = text.strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        # Tolerate prose before/after the JSON: grab the outermost array/object.
+        starts = [i for i in (text.find("["), text.find("{")) if i != -1]
+        ends = [i for i in (text.rfind("]"), text.rfind("}")) if i != -1]
+        if starts and ends:
+            return json.loads(text[min(starts): max(ends) + 1])
+        raise
 
 
-TIERING_SYSTEM = """You classify RingCentral call-queue names into business tiers for a sales analysis.
+TIERING_SYSTEM = """You classify a business's inbound call-queue names into revenue-relevance tiers for a missed-call analysis. This must work for ANY industry — distribution, healthcare, professional services, hospitality, automotive, SaaS, home services, etc. Reason from what the queue name means for THIS business, not from any single industry's vocabulary.
 
-Tiers:
-- A = Named sales queue. The queue name explicitly indicates direct sales (contains "Sales", or is an obvious revenue line).
-- B = Customer-facing product / retail counter. Product counters, retail, "Building Products", "Doors/Hardware", lumber, will-call — customer-facing but not explicitly "Sales".
-- C = Branch main line or front desk. General "Main", "Front Desk", "Operator", "Main CQ", branch reception lines that a customer would call and that can carry sales intent.
-- D = Back-office / internal. NOT customer-revenue facing: IT, Support Center, Infrastructure, Network, Accounting, Estimating, Shipping and Receiving, Credit, AP/AR, HR, Systems. These are EXCLUDED from the sales analysis.
+Tiers (a gradient of how directly a call to this queue touches revenue):
+- A = Direct sales / revenue line. The name explicitly signals selling, new business, or booking revenue (e.g. "Sales", "New Business", "Reservations", "New Patients", "Quotes").
+- B = Customer-facing front line. Where existing or prospective customers reach the business to buy, order, schedule, or get service that drives revenue or retention (product/order desks, service/booking lines, account lines). Customer-facing but not explicitly "Sales".
+- C = General main line / reception. A "Main", "Front Desk", "Operator", or main number a customer would call that can still carry sales or service intent.
+- D = Back-office / internal. NOT customer-revenue facing: IT, internal support/help desk, accounting, AP/AR, credit, HR, logistics/shipping, facilities, systems. These are EXCLUDED from the analysis.
 
 Rules:
-- Use only the queue name text to decide.
-- When a name clearly contains "Sales" -> A.
-- Shipping/Receiving, Credit, Accounting, IT, Support, Network, Infrastructure, Estimating, Systems -> D.
-- Generic branch "Main"/"Front Desk"/"Operator" -> C.
-- Respond with JSON only: an array of {"queue": <exact name>, "tier": "A|B|C|D", "classification": <short label>}.
-- classification labels: A -> "Named 'Sales' queue", B -> "Customer-facing product / retail counter", C -> "Branch main line or front desk", D -> "Back-office / internal (excluded)".
+- Decide from the queue name plus any business context provided. When unsure whether a queue is customer-facing, prefer C over D so it is not wrongly excluded.
+- A name that clearly signals selling/booking new revenue -> A.
+- Clearly internal/operational functions (IT, accounting, credit, HR, shipping/receiving, systems, internal help desk) -> D.
+- Generic "Main"/"Front Desk"/"Operator"/main number -> C.
+- Respond with JSON only: an array of {"queue": <exact name>, "tier": "A|B|C|D", "classification": <short neutral label>}.
+- classification labels: A -> "Sales / revenue line", B -> "Customer-facing front line", C -> "Main line / reception", D -> "Back-office / internal (excluded)".
 - Include every queue exactly once, using the exact input string."""
 
 
-def classify_queues(queue_names: list[str]) -> dict[str, dict]:
-    """Return {queue_name: {"tier": "A".."D", "classification": "..."}}."""
+def _business_hint(business_context) -> str:
+    """A short, neutral description of the business to steer queue tiering."""
+    if not business_context or not isinstance(business_context, dict):
+        return ""
+    if not business_context.get("available", True):
+        return ""
+    parts = []
+    industry = (business_context.get("industry") or "").strip()
+    summary = (business_context.get("summary") or "").strip()
+    lobs = business_context.get("lines_of_business") or []
+    if industry:
+        parts.append(f"Industry: {industry}")
+    if summary:
+        parts.append(f"What they do: {summary}")
+    if lobs:
+        parts.append("Lines of business: " + ", ".join(str(x) for x in lobs[:8]))
+    if not parts:
+        return ""
+    return (
+        "Business context for THIS customer (use it to judge whether each queue is "
+        "customer/revenue-facing for this specific business):\n" + "\n".join(parts) + "\n\n"
+    )
+
+
+def classify_queues(queue_names: list[str], business_context=None) -> dict[str, dict]:
+    """Return {queue_name: {"tier": "A".."D", "classification": "..."}}.
+
+    When ``business_context`` (the crawled website profile) is supplied, it is
+    fed to the model so tiering is reasoned from this customer's actual business
+    rather than any hard-coded industry vocabulary.
+    """
     client = get_client()
     payload = "\n".join(f"- {q}" for q in queue_names)
-    resp = client.messages.create(
-        model=MODEL,
-        max_tokens=4096,
-        system=TIERING_SYSTEM,
-        messages=[{"role": "user", "content": f"Classify these {len(queue_names)} queues:\n{payload}"}],
+    user = (
+        _business_hint(business_context)
+        + f"Classify these {len(queue_names)} queues:\n{payload}"
     )
-    data = _extract_json(resp.content[0].text)
     result: dict[str, dict] = {}
-    for item in data:
-        q = item.get("queue", "").strip()
-        if q:
-            result[q] = {
-                "tier": item.get("tier", "C").strip().upper()[:1] or "C",
-                "classification": item.get("classification", "").strip(),
-            }
-    # Fallback for any queue Claude omitted
+    try:
+        resp = client.messages.create(
+            model=MODEL,
+            max_tokens=4096,
+            system=TIERING_SYSTEM,
+            messages=[{"role": "user", "content": user}],
+        )
+        data = _extract_json(resp.content[0].text)
+        for item in data:
+            q = (item.get("queue") or "").strip()
+            if q:
+                result[q] = {
+                    "tier": (item.get("tier", "C") or "C").strip().upper()[:1] or "C",
+                    "classification": (item.get("classification") or "").strip(),
+                }
+    except Exception:
+        # Never fail the whole run on a model/parse hiccup — fall back to a
+        # neutral default tier for every queue (keeps them in the analysis).
+        result = {}
+    # Fallback for any queue Claude omitted or that failed to parse
     for q in queue_names:
         if q not in result:
-            result[q] = {"tier": "C", "classification": "Branch main line or front desk"}
+            result[q] = {"tier": "C", "classification": "Main line / reception"}
     return result
 
 
@@ -104,9 +151,9 @@ Return JSON only with this exact shape:
 
 Rules:
 - Ground every claim in the website text or the queue names; do not invent specific facts (no fake revenue, locations, or customer names).
-- Predict 4-7 call reasons most likely for THIS business. Map each to a tier: A=direct sales, B=product/retail counter, C=branch main/front desk, D=back-office/support.
+- Predict 4-7 call reasons most likely for THIS business, whatever its industry. Map each to a tier: A=direct sales / new revenue, B=customer-facing front line (orders, scheduling, service that drives revenue/retention), C=general main line / reception, D=back-office / internal support.
 - revenue_relevant=true when answering that call could win or retain revenue.
-- suggested_avg_order_value: reason from the business type (e.g. building-materials distributor -> larger orders; a salon -> small). Be conservative and defensible.
+- suggested_avg_order_value: reason from the business type and typical transaction size (e.g. a distributor or B2B firm -> larger orders; a salon or cafe -> small; a SaaS or services firm -> a contract/booking value). Be conservative and defensible.
 - JSON only, no prose, no code fences."""
 
 

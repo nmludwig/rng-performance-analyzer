@@ -481,9 +481,9 @@ def _slide4(prs, r: PipelineResult, ctx, narr):
 
     # Tier summary cards
     tier_meta = [
-        ("A", "Named 'Sales'", RC_RED, RGBColor(0xFC,0xEC,0xEC)),
-        ("B", "Retail / Product Counter", RC_GOLD, RGBColor(0xFB,0xF3,0xE0)),
-        ("C", "Branch Front Desk / Main", RC_BLUE, RGBColor(0xE9,0xEE,0xF6)),
+        ("A", "Sales / revenue line", RC_RED, RGBColor(0xFC,0xEC,0xEC)),
+        ("B", "Customer-facing front line", RC_GOLD, RGBColor(0xFB,0xF3,0xE0)),
+        ("C", "Main line / reception", RC_BLUE, RGBColor(0xE9,0xEE,0xF6)),
     ]
     cw = Inches(4.05)
     cxs = [Inches(0.5), Inches(4.68), Inches(8.86)]
@@ -557,8 +557,8 @@ def _full_table(s, queues, x, y, w):
 
 _TIER_BADGE = {
     "A": (RC_RED, RGBColor(0xFC, 0xEC, 0xEC), "Sales"),
-    "B": (RC_GOLD, RGBColor(0xFB, 0xF3, 0xE0), "Product"),
-    "C": (RC_BLUE, RGBColor(0xE9, 0xEE, 0xF6), "Front desk"),
+    "B": (RC_GOLD, RGBColor(0xFB, 0xF3, 0xE0), "Customer-facing"),
+    "C": (RC_BLUE, RGBColor(0xE9, 0xEE, 0xF6), "Main line"),
     "D": (GRAY, LIGHT, "Back-office"),
 }
 
@@ -694,7 +694,7 @@ def _slide_capabilities(prs, r: PipelineResult, ctx, narr):
         ("Handles routine calls", "Hours, locations, order status, basic questions — the short, sub-60-second calls — resolved without a human."),
         ("Qualifies & routes", "Understands intent, captures lead details, and warm-routes revenue conversations to the right queue or rep."),
         ("Captures every lead", "Name, number, and reason logged on every interaction — even when no one is available to take it live."),
-        ("Scales with no hiring", "Add unlimited concurrent calls across all branches without recruiting, training, or overtime."),
+        ("Scales with no hiring", "Add unlimited concurrent calls across every location without recruiting, training, or overtime."),
     ]
     cw, chh = Inches(4.05), Inches(1.95)
     gx, gy = Inches(0.5), Inches(0.55)
@@ -756,7 +756,7 @@ def _slide_cost(prs, r: PipelineResult, ctx, narr):
          (" — every hour, every day", {"size": 12, "color": GRAY})],
         [("• No recruiting, training, or turnover", {"size": 12, "color": GRAY})],
         [("• Full nights / weekends / holidays coverage", {"size": 12, "color": GRAY})],
-        [("• Unlimited concurrent calls, all branches", {"size": 12, "color": GRAY})],
+        [("• Unlimited concurrent calls, every location", {"size": 12, "color": GRAY})],
     ], rx + Inches(0.35), ly + Inches(2.35), lw - Inches(0.7), Inches(1.6), line_spacing=1.15, space_after=7)
 
     _text(s, f"Assumes ~{round(m['air_minutes_month']):,} AIR minutes/mo at ${m['air_rate']:.2f}/min "
@@ -885,7 +885,7 @@ def _slide_investment(prs, r: PipelineResult, ctx, narr):
     ], Inches(0.8), by + Inches(0.72), Inches(5.8), Inches(0.9), line_spacing=1.2, space_after=6)
     _rich(s, [
         [("✓  No hardware, no on-prem install", {"bold": True, "size": 13, "color": DARK})],
-        [("✓  Scales to every branch, no hiring", {"bold": True, "size": 13, "color": DARK})],
+        [("✓  Scales to every location, no hiring", {"bold": True, "size": 13, "color": DARK})],
     ], Inches(6.9), by + Inches(0.72), Inches(5.8), Inches(0.9), line_spacing=1.2, space_after=6)
 
     _text(s, f"Usage estimate derived from {round(m['inbound_per_month']):,} inbound calls/mo × "
@@ -910,7 +910,7 @@ def _slide_next(prs, r: PipelineResult, ctx, narr):
         ("Confirm the numbers", "Review this analysis with your operations team and validate the queues, volumes, and order value against your own reporting."),
         ("Pilot on the worst gap", "Stand up AIR on the highest-miss queues and the after-hours window first — fastest, most visible recovery."),
         ("Measure recovered calls", "Track answered-vs-missed and captured leads for 30–60 days against the baseline in this deck."),
-        ("Roll out companywide", "Expand AIR across all branches once the pilot proves capture — with free implementation and 4 months free."),
+        ("Roll out companywide", "Expand AIR across every location once the pilot proves capture — with free implementation and 4 months free."),
     ]
     y = Inches(2.05); rh = Inches(1.1); gap = Inches(0.12)
     for i, (title, body) in enumerate(steps, 1):
@@ -1041,7 +1041,7 @@ def build_deck(result: PipelineResult, run_id: str, customer: str, ae_name: str,
     narr1 = _narr1(ctx, prior_instructions)
     narr2 = _narr_titles(ctx, prior_instructions, "slide2")
     narr_hourly = {"title": "Calls slip away after hours, on weekends — and even midday",
-                   "subtitle": f"Inbound miss rate by hour of day · {result.reporting_period} · when branches close or get busy, calls go unanswered"}
+                   "subtitle": f"Inbound miss rate by hour of day · {result.reporting_period} · when the business closes or gets busy, calls go unanswered"}
     narr3 = {"title": "Where AI Receptionist captures revenue today",
              "subtitle": f"Abandoned-in-queue callers and short routine calls · Tier A+B+C · {result.reporting_period}"}
     narr4 = {"title": "Queue-level missed call analysis (Tier A+B+C)",

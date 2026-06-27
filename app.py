@@ -257,14 +257,10 @@ def _run_pipeline_and_build(run_id, upload_path, messages):
 
     sdf = parse_sessions(upload_path)
     queues = distinct_queues(sdf)
-    tiers = classify_queues(queues)
-    result = build_result(sdf, tiers)
 
-    override_period = session.get("reporting_period", "").strip()
-    if override_period:
-        result.reporting_period = override_period
-
-    # Business context via Firecrawl (cached per run after first build)
+    # Business context via Firecrawl is crawled up-front (discover step) and
+    # cached in the session. Build it here only as a fallback, BEFORE tiering,
+    # so queue tiers can be reasoned from this customer's actual business.
     business_context = session.get("business_context")
     company_url = session.get("company_url", "").strip()
     if business_context is None and company_url:
@@ -275,6 +271,13 @@ def _run_pipeline_and_build(run_id, upload_path, messages):
         except Exception as e:
             business_context = {"available": False, "reason": f"error: {e}"}
         session["business_context"] = business_context
+
+    tiers = classify_queues(queues, business_context=business_context)
+    result = build_result(sdf, tiers)
+
+    override_period = session.get("reporting_period", "").strip()
+    if override_period:
+        result.reporting_period = override_period
 
     return build_deck(
         result=result,
