@@ -3,7 +3,7 @@
 
 <!-- Hero -->
 <div style="text-align:center;max-width:680px;margin:0.5rem auto 2.5rem;">
-  <div style="display:inline-block;background:#fff3e8;color:#FF7A00;font-weight:700;
+  <div style="display:inline-block;background:#fff3e8;color:#FF8800;font-weight:700;
        font-size:0.72rem;letter-spacing:0.08em;text-transform:uppercase;
        padding:0.35rem 0.85rem;border-radius:999px;margin-bottom:1rem;">
     AI Receptionist · Missed-Call Business Case
@@ -22,7 +22,7 @@
 <div class="card" style="background:linear-gradient(180deg,#fbfcfe 0%,#fff 100%);">
   <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.4rem;">
     <h2 style="margin-bottom:0;">Here's exactly what you'll get</h2>
-    <span style="color:#999;font-size:0.82rem;">Real example · 11-slide .pptx</span>
+    <span style="color:#999;font-size:0.82rem;">Real example · 12-slide .pptx</span>
   </div>
   <p style="color:#777;font-size:0.9rem;margin-bottom:1.5rem;">
     A finished, RingCentral-branded PowerPoint — built automatically from your upload. Sample below:
@@ -37,19 +37,20 @@
          style="width:100%;display:block;">
   </a>
 
-  <!-- The other nine slides -->
+  <!-- The other eleven slides -->
   <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;">
     {% set example_slides = [
       (1, 'Methodology & data integrity'),
       (2, 'Missed-call headline'),
-      (4, 'AI Receptionist opportunity signals'),
+      (4, 'Where AI Receptionist captures revenue today'),
       (5, 'Queue-level missed-call detail'),
-      (6, 'What your callers are likely calling about'),
-      (7, 'How AI Receptionist answers every call'),
-      (8, 'Far cheaper than hiring'),
-      (9, 'Missed calls become recovered orders'),
-      (10, 'Rollout investment'),
-      (11, 'Recommendation & next steps')
+      (6, 'What queue config can fix — and what only AIR can'),
+      (7, 'What your callers are likely calling about'),
+      (8, 'How AI Receptionist answers every call'),
+      (9, 'Far cheaper than hiring'),
+      (10, 'Missed calls become recovered orders'),
+      (11, 'Rollout investment'),
+      (12, 'Recommendation & next steps')
     ] %}
     {% for num, caption in example_slides %}
     <a href="{{ url_for('static', filename='examples/slide-' ~ num ~ '.png') }}" target="_blank"
@@ -68,7 +69,7 @@
 
 <!-- Start: customer + website first -->
 <div class="card">
-  <div style="display:inline-block;background:#fff3e8;color:#FF7A00;font-weight:700;
+  <div style="display:inline-block;background:#fff3e8;color:#FF8800;font-weight:700;
        font-size:0.7rem;letter-spacing:0.07em;text-transform:uppercase;
        padding:0.3rem 0.75rem;border-radius:999px;margin-bottom:0.75rem;">
     Step 1 of 3 · Start with the customer
