@@ -211,8 +211,12 @@ def _slide2(prs, r: PipelineResult, ctx, narr, sales_queue_calls):
     _rect(s, lx, ly, lw, lh, WHITE, line=CARD_BORDER, radius=True)
     _text(s, "GENUINE MISSED\nCALLS — A+B+C QUEUES", lx + Inches(0.25), ly + Inches(0.55),
           lw - Inches(0.5), Inches(0.7), size=12, bold=True, color=GRAY, font="Arial")
-    _text(s, f"{r.total_missed:,}", lx + Inches(0.18), ly + Inches(1.15), lw - Inches(0.3), Inches(1.2),
-          size=72, bold=True, color=RC_RED, font="Arial")
+    # Size the headline number to the digit count so 5- and 6-figure totals
+    # both fit on ONE line in the ~2.95in card (72pt overflowed and wrapped).
+    _big_n = f"{r.total_missed:,}"
+    _big_size = 72 if len(_big_n) <= 5 else 58
+    _text(s, _big_n, lx + Inches(0.18), ly + Inches(1.25), lw - Inches(0.3), Inches(1.2),
+          size=_big_size, bold=True, color=RC_RED, font="Arial", wrap=False)
     _rich(s, [[(f"{r.miss_rate*100:.1f}%", {"bold": True, "size": 13, "color": DARK}),
                (f" of {r.universe_sessions:,} queue sessions went unanswered",
                 {"size": 13, "color": DARK})]],
@@ -234,8 +238,12 @@ def _slide2(prs, r: PipelineResult, ctx, narr, sales_queue_calls):
 
     _text(s, "How they were missed:", mx, Inches(4.35), Inches(4.6), Inches(0.3),
           size=12, bold=True, color=DARK, font="Arial")
+    # Real abandoned count comes from the Queues report (2nd upload); the Calls
+    # export has no "Abandoned" disposition so r.abandoned is always 0 there.
+    qr = r.queues_report
+    abandoned_n = qr.abandoned if (qr and qr.abandoned) else r.abandoned
     bd = [
-        (r.abandoned, "Abandoned while ringing", RC_RED, RGBColor(0xFC,0xEC,0xEC)),
+        (abandoned_n, "Abandoned in queue (left waiting)", RC_RED, RGBColor(0xFC,0xEC,0xEC)),
         (r.voicemail_total, "Went to voicemail (left msg)", RC_GOLD, RGBColor(0xFB,0xF3,0xE0)),
         (r.missed, "Rang out — no answer", RC_PURPLE, RGBColor(0xF0,0xEC,0xF7)),
     ]
@@ -251,13 +259,47 @@ def _slide2(prs, r: PipelineResult, ctx, narr, sales_queue_calls):
     _text(s, f"{r.repeat_callers} callers tried 2+ times and never got through — proof of buying intent, not spam",
           mx, by + Inches(0.02), Inches(4.6), Inches(0.5), size=10, italic=True, color=RC_RED)
 
-    # Right: worst-hit queues table
+    # Right: worst-hit queues table. Prefer the Queues report (real per-queue
+    # abandoned); the Calls export collapses all abandoned calls into "Unknown",
+    # which hides which sales/customer-facing queues actually lost the calls.
     rx = Inches(8.85)
-    _text(s, "Worst-hit queues", rx, Inches(1.95), Inches(4.0), Inches(0.35),
-          size=14, bold=True, color=DARK, font="Arial")
-    worst = sorted(r.queue_stats.values(), key=lambda q: q.total_missed, reverse=True)[:10]
-    _worst_table(s, worst, rx, Inches(2.35), Inches(3.95))
+    if qr and qr.queues:
+        _text(s, "Worst-hit queues — by abandoned", rx, Inches(1.95), Inches(4.0), Inches(0.35),
+              size=14, bold=True, color=DARK, font="Arial")
+        worst = sorted((q for q in qr.queues if (q.tier or "C") != "D"),
+                       key=lambda q: q.abandoned, reverse=True)[:10]
+        _worst_table_qr(s, worst, rx, Inches(2.35), Inches(3.95))
+    else:
+        _text(s, "Worst-hit queues", rx, Inches(1.95), Inches(4.0), Inches(0.35),
+              size=14, bold=True, color=DARK, font="Arial")
+        worst = sorted(r.queue_stats.values(), key=lambda q: q.total_missed, reverse=True)[:10]
+        _worst_table(s, worst, rx, Inches(2.35), Inches(3.95))
     _footer(s, 2)
+
+
+def _worst_table_qr(s, queues, x, y, w):
+    """Worst-hit table from the Queues report (real abandoned per queue)."""
+    rows = len(queues) + 1
+    tbl_shape = s.shapes.add_table(rows, 4, x, y, w, Inches(0.32) * rows)
+    tbl = tbl_shape.table
+    tbl.columns[0].width = Inches(2.5)
+    tbl.columns[1].width = Inches(0.45)
+    tbl.columns[2].width = Inches(0.55)
+    tbl.columns[3].width = Inches(0.45)
+    headers = ["Queue", "T", "Aband", "%"]
+    for j, htext in enumerate(headers):
+        c = tbl.cell(0, j)
+        c.fill.solid(); c.fill.fore_color.rgb = RC_NAVY
+        _cell(c, htext, WHITE, bold=True, size=9, align=PP_ALIGN.CENTER if j else PP_ALIGN.LEFT)
+    for i, q in enumerate(queues, 1):
+        bg = ROW_ALT if i % 2 else WHITE
+        vals = [q.name[:26], q.tier or "C", f"{q.abandoned}", f"{round(q.abandon_rate*100)}%"]
+        for j, v in enumerate(vals):
+            c = tbl.cell(i, j)
+            c.fill.solid(); c.fill.fore_color.rgb = bg
+            col = RC_RED if (j == 3 and q.abandon_rate >= 0.7) else DARK
+            _cell(c, v, col, bold=(j == 3 and q.abandon_rate >= 0.7), size=8.5,
+                  align=PP_ALIGN.CENTER if j else PP_ALIGN.LEFT)
 
 
 def _hourly_chart(s, r, x, y, w, h):
@@ -545,8 +587,20 @@ def _abandon_table_qr(s, queues, x, y, w):
 def _slide4(prs, r: PipelineResult, ctx, narr):
     s = prs.slides.add_slide(prs.slide_layouts[6])
     _logo(s)
+
+    # The Calls export only stamps a queue name on ANSWERED legs — abandoned /
+    # missed calls arrive with a blank Queue and collapse into "Unknown", which
+    # makes every sales/customer-facing queue look like it had 0 missed calls.
+    # The Queues report (2nd upload) is the only source with real per-queue
+    # abandoned counts, so we build this slide from it whenever it's present.
+    qr = r.queues_report
+    use_qr = bool(qr and qr.queues)
+
     _title_block(s, narr.get("title", "Queue-level missed call analysis — sales-taking queues (Tier A+B+C)"),
-                 narr.get("subtitle", ""))
+                 narr.get("subtitle",
+                          "Per-queue abandoned calls from the RingCentral Queues report — "
+                          "the only source that attributes missed calls to the queue they were waiting in."
+                          if use_qr else ""))
 
     # Tier summary cards
     tier_meta = [
@@ -557,8 +611,13 @@ def _slide4(prs, r: PipelineResult, ctx, narr):
     cw = Inches(4.05)
     cxs = [Inches(0.5), Inches(4.68), Inches(8.86)]
     for (tier, label, col, bg), cx in zip(tier_meta, cxs):
-        qs = [q for q in r.queue_stats.values() if q.tier == tier]
-        nq = len(qs); inb = sum(q.inbound for q in qs); mis = sum(q.total_missed for q in qs)
+        if use_qr:
+            qs = [q for q in qr.queues if (q.tier or "C") == tier]
+            inb = sum(q.inbound for q in qs); mis = sum(q.abandoned for q in qs)
+        else:
+            qs = [q for q in r.queue_stats.values() if q.tier == tier]
+            inb = sum(q.inbound for q in qs); mis = sum(q.total_missed for q in qs)
+        nq = len(qs)
         mr = mis / inb if inb else 0
         _rect(s, cx, Inches(1.85), cw, Inches(0.95), bg, line=col, line_w=Pt(1), radius=True)
         _circle(s, cx + Inches(0.18), Inches(2.02), Inches(0.42), col, tier, size=15)
@@ -570,16 +629,61 @@ def _slide4(prs, r: PipelineResult, ctx, narr):
                    ("inbound", {"size": 11, "color": GRAY})]],
               cx + Inches(0.72), Inches(2.32), cw - Inches(0.8), Inches(0.25))
         _rich(s, [[(f"{mis:,} ", {"bold": True, "size": 12, "color": col}),
-                   ("missed   ", {"size": 11, "color": GRAY}),
+                   ("abandoned   " if use_qr else "missed   ", {"size": 11, "color": GRAY}),
                    (f"{mr*100:.1f}%", {"bold": True, "size": 12, "color": col})]],
               cx + Inches(0.72), Inches(2.55), cw - Inches(0.8), Inches(0.25))
 
     # Full queue table
-    order = {"A": 0, "B": 1, "C": 2}
-    queues = sorted(r.queue_stats.values(),
-                    key=lambda q: (order.get(q.tier, 9), -q.total_missed))
-    _full_table(s, queues, Inches(0.5), Inches(2.92), Inches(12.33))
+    order = {"A": 0, "B": 1, "C": 2, "D": 3}
+    if use_qr:
+        queues = sorted((q for q in qr.queues if (q.tier or "C") != "D"),
+                        key=lambda q: (order.get(q.tier or "C", 9), -q.abandoned))
+        _full_table_qr(s, queues, Inches(0.5), Inches(2.92), Inches(12.33))
+    else:
+        queues = sorted(r.queue_stats.values(),
+                        key=lambda q: (order.get(q.tier, 9), -q.total_missed))
+        _full_table(s, queues, Inches(0.5), Inches(2.92), Inches(12.33))
     _footer(s, 5)
+
+
+def _full_table_qr(s, queues, x, y, w):
+    """Queue-level table sourced from the Queues report (real per-queue abandoned)."""
+    rows = len(queues) + 1
+    row_in = 0.135
+    tbl_shape = s.shapes.add_table(rows, 7, x, y, w, Inches(row_in * rows))
+    tbl = tbl_shape.table
+    tbl.first_row = False
+    tbl.horz_banding = False
+    widths = [4.6, 0.7, 3.6, 1.1, 1.0, 0.85, 0.85]
+    for j, ww in enumerate(widths):
+        tbl.columns[j].width = Inches(ww)
+    for i in range(rows):
+        tbl.rows[i].height = Inches(row_in)
+    headers = ["Queue Name", "Tier", "Classification", "Inbound", "Answered", "Abandoned", "Ab. %"]
+    for j, htext in enumerate(headers):
+        c = tbl.cell(0, j)
+        c.fill.solid(); c.fill.fore_color.rgb = RC_NAVY
+        _cell(c, htext, WHITE, bold=True, size=8.5, pad=0,
+              align=PP_ALIGN.LEFT if j in (0, 2) else PP_ALIGN.CENTER)
+    tier_col = {"A": RC_RED, "B": RC_GOLD, "C": RC_BLUE}
+    for i, q in enumerate(queues, 1):
+        bg = ROW_ALT if i % 2 else WHITE
+        tier = q.tier or "C"
+        vals = [q.name[:46], tier, (q.classification or "")[:38],
+                f"{q.inbound:,}", f"{q.answered:,}", f"{q.abandoned:,}",
+                f"{round(q.abandon_rate*100)}%"]
+        for j, v in enumerate(vals):
+            c = tbl.cell(i, j)
+            c.fill.solid(); c.fill.fore_color.rgb = bg
+            if j == 1:
+                col = tier_col.get(tier, DARK); bold = True
+            elif j == 6:
+                col = RC_RED if q.abandon_rate >= 0.5 else DARK
+                bold = q.abandon_rate >= 0.5
+            else:
+                col = DARK; bold = False
+            _cell(c, v, col, bold=bold, size=7.5, pad=0,
+                  align=PP_ALIGN.LEFT if j in (0, 2) else PP_ALIGN.CENTER)
 
 
 def _full_table(s, queues, x, y, w):
