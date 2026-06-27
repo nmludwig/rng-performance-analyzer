@@ -669,7 +669,13 @@ def _full_table_qr(s, queues, x, y, w):
     for i, q in enumerate(queues, 1):
         bg = ROW_ALT if i % 2 else WHITE
         tier = q.tier or "C"
-        vals = [q.name[:46], tier, (q.classification or "")[:38],
+        # A queue with inbound calls but 0 answered is unstaffed/misconfigured —
+        # that's a routing/staffing fix (Professional Services), NOT a license gap.
+        unstaffed = q.answered == 0 and q.inbound > 0
+        classification = (q.classification or "")[:38]
+        if unstaffed:
+            classification = "UNSTAFFED — 0 agents answered"
+        vals = [q.name[:46], tier, classification,
                 f"{q.inbound:,}", f"{q.answered:,}", f"{q.abandoned:,}",
                 f"{round(q.abandon_rate*100)}%"]
         for j, v in enumerate(vals):
@@ -677,6 +683,8 @@ def _full_table_qr(s, queues, x, y, w):
             c.fill.solid(); c.fill.fore_color.rgb = bg
             if j == 1:
                 col = tier_col.get(tier, DARK); bold = True
+            elif j == 2 and unstaffed:
+                col = RC_GOLD; bold = True
             elif j == 6:
                 col = RC_RED if q.abandon_rate >= 0.5 else DARK
                 bold = q.abandon_rate >= 0.5
@@ -722,6 +730,111 @@ def _full_table(s, queues, x, y, w):
                 col = DARK; bold = False
             _cell(c, v, col, bold=bold, size=7.5, pad=0,
                   align=PP_ALIGN.LEFT if j in (0, 2) else PP_ALIGN.CENTER)
+
+
+# ---------------------------------------------------------------------------
+# Slide — config-fixable vs. structural gap (license-justification framing)
+# ---------------------------------------------------------------------------
+
+def _missed_time_split(r: PipelineResult):
+    """Split genuine missed calls into after-hours (structural) vs business-hours.
+
+    Sourced from the Calls export (the only per-call timestamped feed), spam
+    excluded so it reconciles to the headline universe. Returns None if the
+    timestamp/in-business-hours signal isn't available.
+    """
+    df = r.sessions_df
+    if df is None or "in_business_hours" not in df.columns:
+        return None
+    missed_vals = ["missed", "abandoned", "vm/missed", "voicemail"]
+    m = df[df["outcome"].astype(str).str.strip().str.lower().isin(missed_vals)]
+    if "is_spam" in m.columns:
+        m = m[~m["is_spam"].astype(bool)]
+    total = len(m)
+    after = int((~m["in_business_hours"].astype(bool)).sum())
+    return {"total": total, "after": after, "business": total - after}
+
+
+def _unstaffed_queues(r: PipelineResult):
+    """Queues with inbound calls but zero ever answered — config/staffing fixes."""
+    qr = r.queues_report
+    if not (qr and qr.queues):
+        return []
+    return [q for q in qr.queues
+            if q.answered == 0 and q.inbound > 0 and (q.tier or "C") != "D"]
+
+
+def _slide_config_vs_air(prs, r: PipelineResult, ctx, narr):
+    s = prs.slides.add_slide(prs.slide_layouts[6])
+    _logo(s)
+    _title_block(s, narr.get("title", "What queue config can fix — and what only AIR can"),
+                 narr.get("subtitle",
+                          "Separating calls recoverable by routing/staffing from the structural "
+                          "gap that needs always-on coverage"))
+
+    total = r.total_missed
+    unstaffed = _unstaffed_queues(r)
+    config_fixable = sum(q.abandoned for q in unstaffed)
+    structural = max(total - config_fixable, 0)
+    split = _missed_time_split(r)
+    after_hours = split["after"] if split else 0
+
+    # Three flow cards: total -> config-fixable -> structural (AIR)
+    cy, ch = Inches(2.05), Inches(2.75)
+    cards = [
+        (Inches(0.5), Inches(3.55), WHITE, CARD_BORDER, DARK, GRAY,
+         "TOTAL GENUINE MISSED", f"{total:,}", "A+B+C queues · spam-filtered · de-duplicated",
+         "Every inbound call that never reached a person."),
+        (Inches(4.78), Inches(3.55), RGBColor(0xFB,0xF3,0xE0), RC_GOLD, RC_GOLD, GRAY,
+         "CONFIG-FIXABLE (PRO SERVICES)", f"{config_fixable:,}",
+         f"{len(unstaffed)} unstaffed queue{'s' if len(unstaffed)!=1 else ''} · 0 agents ever answered",
+         "Routing/staffing fix — no new licenses required."),
+        (Inches(9.06), Inches(3.77), RGBColor(0xFC,0xEC,0xEC), RC_RED, RC_RED, GRAY,
+         "STRUCTURAL GAP — ONLY AIR CLOSES", f"{structural:,}",
+         "Calls arriving when staff are busy, after hours, or at peak",
+         "No routing rule answers a call when no human is free."),
+    ]
+    for x, w, bg, border, numcol, subcol, head, big, sub, foot in cards:
+        _rect(s, x, cy, w, ch, bg, line=border, line_w=Pt(1.25), radius=True)
+        _text(s, head, x + Inches(0.22), cy + Inches(0.2), w - Inches(0.4), Inches(0.5),
+              size=11, bold=True, color=numcol, font="Arial")
+        _text(s, big, x + Inches(0.18), cy + Inches(0.72), w - Inches(0.3), Inches(1.0),
+              size=46, bold=True, color=numcol, font="Arial", wrap=False)
+        _text(s, sub, x + Inches(0.22), cy + Inches(1.82), w - Inches(0.4), Inches(0.5),
+              size=10.5, bold=True, color=DARK, font="Arial")
+        _text(s, foot, x + Inches(0.22), cy + Inches(2.25), w - Inches(0.4), Inches(0.45),
+              size=10, italic=True, color=subcol)
+
+    # Minus / equals connectors between the cards
+    _text(s, "−", Inches(4.18), cy + Inches(0.95), Inches(0.6), Inches(0.8),
+          size=34, bold=True, color=GRAY, align=PP_ALIGN.CENTER)
+    _text(s, "=", Inches(8.46), cy + Inches(0.95), Inches(0.6), Inches(0.8),
+          size=34, bold=True, color=GRAY, align=PP_ALIGN.CENTER)
+
+    # Unstaffed-queue detail line under the middle card
+    if unstaffed:
+        names = " · ".join(f"{q.name} ({q.abandoned:,})" for q in unstaffed[:3])
+        _text(s, f"Unstaffed: {names}", Inches(4.78), cy + ch + Inches(0.05),
+              Inches(4.0), Inches(0.5), size=8.5, italic=True, color=RC_GOLD)
+
+    # Bottom emphasis bar — the after-hours floor config literally cannot touch
+    by = Inches(5.95)
+    _rect(s, Inches(0.5), by, Inches(12.33), Inches(0.85), RGBColor(0xFC,0xEC,0xEC),
+          line=RC_RED, line_w=Pt(1), radius=True)
+    if split and after_hours:
+        ah_pct = round(after_hours / split["total"] * 100) if split["total"] else 0
+        _rich(s, [[(f"{after_hours:,} ", {"bold": True, "size": 16, "color": RC_RED}),
+                   (f"of the missed calls ({ah_pct}%) arrive entirely after hours — when no one is "
+                    "scheduled. ", {"size": 12, "color": DARK}),
+                   ("Configuration cannot recover a single one; only always-on coverage can.",
+                    {"size": 12, "bold": True, "color": RC_RED})]],
+              Inches(0.75), by, Inches(11.8), Inches(0.85), anchor=MSO_ANCHOR.MIDDLE)
+    else:
+        _rich(s, [[("Even with perfectly tuned routing, the structural gap above remains — "
+                    "it is answered only by always-on coverage, not by reconfiguring queues.",
+                    {"size": 12, "bold": True, "color": RC_RED})]],
+              Inches(0.75), by, Inches(11.8), Inches(0.85), anchor=MSO_ANCHOR.MIDDLE)
+    _footer(s)
 
 
 # ---------------------------------------------------------------------------
@@ -1243,6 +1356,7 @@ def build_deck(result: PipelineResult, run_id: str, customer: str, ae_name: str,
     _slide_hourly(prs, result, ctx, narr_hourly)
     _slide3(prs, result, ctx, narr3)
     _slide4(prs, result, ctx, narr4)
+    _slide_config_vs_air(prs, result, ctx, {})
     if business and business.get("predicted_call_reasons"):
         _slide_call_reasons(prs, result, ctx, {})
     _slide_capabilities(prs, result, ctx, {})
