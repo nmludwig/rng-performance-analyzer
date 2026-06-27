@@ -300,6 +300,21 @@ def build_result(sdf: pd.DataFrame, queue_tiers: dict[str, dict]) -> PipelineRes
     # Headline universe: A+B+C queues only (exclude Tier D back-office)
     universe = clean[clean["tier"].isin(["A", "B", "C"])].copy()
 
+    if len(universe) == 0:
+        n_clean = len(clean)
+        if n_clean == 0:
+            raise ValueError(
+                "No usable inbound calls were found in this export after de-duplication "
+                "and spam filtering. Make sure you exported the Calls detail view with "
+                "inbound calls in the selected date range."
+            )
+        raise ValueError(
+            f"Found {n_clean} inbound call(s), but all of them are in back-office queues "
+            "that are excluded from the revenue analysis (e.g. an internal Service Desk). "
+            "Re-export including your sales / retail / branch call queues, or pick a date "
+            "range with customer-facing call volume."
+        )
+
     def count(df, outcome):
         return int((df["outcome"] == outcome).sum())
 
@@ -346,9 +361,16 @@ def build_result(sdf: pd.DataFrame, queue_tiers: dict[str, dict]) -> PipelineRes
             hourly_missed[st.hour] += 1
 
     # Miss-rate-by-hour across all 24 hours + weekend / midday (reference deck slide 3)
+    # NB: build _hour/_weekday via list comprehensions so the columns are always
+    # integer-typed — `Series.apply` on an *empty* datetime64 column would otherwise
+    # return an empty datetime64 series and blow up on `>= 0` comparisons.
     uni = universe.copy()
-    uni["_hour"] = uni["start_time"].apply(lambda s: s.hour if s is not None else -1)
-    uni["_weekday"] = uni["start_time"].apply(lambda s: s.weekday() if s is not None else -1)
+
+    def _ok_ts(s):
+        return s is not None and not pd.isna(s)
+
+    uni["_hour"] = [s.hour if _ok_ts(s) else -1 for s in uni["start_time"]]
+    uni["_weekday"] = [s.weekday() if _ok_ts(s) else -1 for s in uni["start_time"]]
     uni["_missed"] = uni["outcome"] != OUTCOME_ANSWERED
     uni_ts = uni[uni["_hour"] >= 0]
 
