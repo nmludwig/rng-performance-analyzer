@@ -255,7 +255,7 @@ def _slide2(prs, r: PipelineResult, ctx, narr, sales_queue_calls):
     # WIDER fallback font is substituted (Inter Tight may be absent on the
     # rendering machine). Sizes chosen to fit the ~2.95in card with margin.
     _nlen = len(_big_n)
-    _big_size = 72 if _nlen <= 5 else 50 if _nlen == 6 else 42
+    _big_size = 66 if _nlen <= 4 else 54 if _nlen == 5 else 46 if _nlen == 6 else 38
     _text(s, _big_n, lx + Inches(0.1), ly + Inches(1.3), lw - Inches(0.2), Inches(1.2),
           size=_big_size, bold=True, color=RC_RED, font=FONT, wrap=False,
           align=PP_ALIGN.CENTER)
