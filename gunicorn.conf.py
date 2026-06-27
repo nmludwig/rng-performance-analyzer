@@ -14,9 +14,14 @@ import os
 # reaped. Generation is typically 30-60s; 300s leaves generous headroom.
 timeout = 300
 
-# Honor Render's WEB_CONCURRENCY when set; otherwise default to 2 so a
-# long-running stream on one worker doesn't block every other request.
-workers = int(os.environ.get("WEB_CONCURRENCY", "2"))
+# Honor Render's WEB_CONCURRENCY when set; otherwise default to 1.
+#
+# This service is memory-bound, not CPU/concurrency-bound: parsing a full-month
+# ~40MB Calls export + building the deck peaks around 400MB, and the instance
+# cap is 512MB. A second worker running a job at the same time would blow past
+# that (OOM). One worker keeps peak memory for a single job comfortably under
+# the cap; bump WEB_CONCURRENCY only on a larger-memory instance.
+workers = int(os.environ.get("WEB_CONCURRENCY", "1"))
 
 worker_class = "sync"
 

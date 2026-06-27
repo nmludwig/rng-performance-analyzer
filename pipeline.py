@@ -251,6 +251,73 @@ def _classify_session(group: pd.DataFrame) -> str:
     return OUTCOME_MISSED
 
 
+# Columns we actually consume downstream. Reading only these (vs. the ~20+ in a
+# full export) keeps peak memory far below Render's 512MB cap.
+_CALLS_NEEDED_COLS = [
+    "Session Id", "Call Direction", "Result", "Call Length", "Queue",
+    "Handle Time", "Call Start Time", "From Number",
+]
+_CALLS_REQUIRED_COLS = {"Session Id", "Call Direction", "Result", "Call Length", "Queue"}
+
+
+def _read_calls_sheet_streaming(path: Path) -> pd.DataFrame:
+    """Stream the Calls sheet with openpyxl read_only, keeping only needed
+    columns and inbound legs, to avoid loading the whole 40MB workbook at once.
+    """
+    import openpyxl
+
+    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    try:
+        sheet_name = wb.sheetnames[0]
+        for name in wb.sheetnames:
+            if name.strip().lower() == "calls":
+                sheet_name = name
+                break
+        else:
+            for name in wb.sheetnames:
+                if "call" in name.lower():
+                    sheet_name = name
+                    break
+        ws = wb[sheet_name]
+
+        rows = ws.iter_rows(values_only=True)
+        try:
+            header = next(rows)
+        except StopIteration:
+            raise ValueError("The Calls export sheet is empty.")
+        header = [str(h).strip() if h is not None else "" for h in header]
+
+        missing = _CALLS_REQUIRED_COLS - set(header)
+        if missing:
+            raise ValueError(
+                f"Missing expected columns: {missing}. Found: {header}")
+
+        # Map each needed column to its position; record the Call Direction index
+        # so we can filter inbound while streaming.
+        col_idx = {name: header.index(name) for name in _CALLS_NEEDED_COLS
+                   if name in header}
+        dir_i = col_idx["Call Direction"]
+        keep_names = list(col_idx.keys())
+        keep_pos = [col_idx[n] for n in keep_names]
+        ncols = len(header)
+
+        data = {n: [] for n in keep_names}
+        for row in rows:
+            if dir_i >= len(row):
+                continue
+            d = row[dir_i]
+            if d is None or str(d).strip().lower() != "inbound":
+                continue
+            for n, p in zip(keep_names, keep_pos):
+                v = row[p] if p < len(row) else None
+                data[n].append("" if v is None else str(v))
+    finally:
+        wb.close()
+
+    df = pd.DataFrame(data, columns=keep_names)
+    return df
+
+
 def parse_sessions(path: Path) -> pd.DataFrame:
     """Parse the export down to one row per inbound session (pre-tiering).
 
@@ -258,27 +325,14 @@ def parse_sessions(path: Path) -> pd.DataFrame:
       session_id, outcome, queue, is_spam, start_time, from_number, in_business_hours
     plus module-level counters attached as DataFrame.attrs.
     """
-    xl = pd.ExcelFile(path)
-    sheet_name = xl.sheet_names[0]
-    for name in xl.sheet_names:
-        if name.strip().lower() == "calls":
-            sheet_name = name
-            break
-    else:
-        for name in xl.sheet_names:
-            if "call" in name.lower():
-                sheet_name = name
-                break
-
-    df = pd.read_excel(path, sheet_name=sheet_name, dtype=str)
-    df.columns = [c.strip() for c in df.columns]
-
-    required = {"Session Id", "Call Direction", "Result", "Call Length", "Queue"}
-    missing = required - set(df.columns)
-    if missing:
-        raise ValueError(f"Missing expected columns: {missing}. Found: {list(df.columns)}")
-
-    df = df[df["Call Direction"].str.strip().str.lower() == "inbound"].reset_index(drop=True)
+    # Memory-efficient read: a full month's Calls export is ~40MB / hundreds of
+    # thousands of leg rows. pd.read_excel loads the WHOLE workbook (every
+    # column, every row) into memory at once, and openpyxl's default mode keeps
+    # the entire parsed sheet resident — together that blew past Render's 512MB
+    # cap (OOM). Instead we stream the sheet in openpyxl read_only mode, keep
+    # only the handful of columns we actually use, and drop non-inbound legs as
+    # we go so they never accumulate.
+    df = _read_calls_sheet_streaming(path)
     raw_inbound_legs = len(df)
 
     # Build derived columns from standalone Series (not df-views assigned back
