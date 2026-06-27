@@ -166,16 +166,29 @@ def upload(run_id):
         return redirect(url_for("index"))
 
     file = request.files.get("report")
+    queues_file = request.files.get("queues_report")
+
     if not file or not file.filename:
-        flash("Please select a file.")
+        flash("Please select the Calls export.")
         return redirect(url_for("upload_step", run_id=run_id))
     if not file.filename.lower().endswith((".xlsx", ".xls")):
-        flash("Only Excel files (.xlsx / .xls) are accepted.")
+        flash("Only Excel files (.xlsx / .xls) are accepted for the Calls export.")
+        return redirect(url_for("upload_step", run_id=run_id))
+
+    if not queues_file or not queues_file.filename:
+        flash("Please also upload the Queues report — it carries the abandoned-call data.")
+        return redirect(url_for("upload_step", run_id=run_id))
+    if not queues_file.filename.lower().endswith((".xlsx", ".xls")):
+        flash("Only Excel files (.xlsx / .xls) are accepted for the Queues report.")
         return redirect(url_for("upload_step", run_id=run_id))
 
     upload_path = UPLOAD_FOLDER / f"{run_id}.xlsx"
     file.save(upload_path)
+    queues_path = UPLOAD_FOLDER / f"{run_id}_queues.xlsx"
+    queues_file.save(queues_path)
+
     session["filename"] = file.filename
+    session["queues_filename"] = queues_file.filename
     session["reporting_period"] = request.form.get("reporting_period", "").strip()
 
     return redirect(url_for("generate", run_id=run_id))
@@ -248,9 +261,10 @@ def api_process_stream(run_id):
         )
 
     upload_path = UPLOAD_FOLDER / f"{run_id}.xlsx"
-    if not upload_path.exists():
+    queues_path = UPLOAD_FOLDER / f"{run_id}_queues.xlsx"
+    if not upload_path.exists() or not queues_path.exists():
         return Response(
-            "data: " + json.dumps({"error": "Uploaded file not found."}) + "\n\n",
+            "data: " + json.dumps({"error": "Uploaded files not found — please re-upload."}) + "\n\n",
             mimetype="text/event-stream",
         )
 
@@ -271,7 +285,8 @@ def api_process_stream(run_id):
             return "data: " + json.dumps(payload) + "\n\n"
 
         try:
-            from pipeline import parse_sessions, build_result, distinct_queues
+            from pipeline import (parse_sessions, build_result, distinct_queues,
+                                  parse_queues_report, queues_report_queue_names)
             from claude_client import classify_queues
             from deck import build_deck
 
@@ -279,9 +294,13 @@ def api_process_stream(run_id):
             sdf = parse_sessions(upload_path)
             n_sessions = len(sdf)
             yield ev(stage="parse",
-                     msg=f"De-duplicated call legs into {n_sessions:,} sessions.", pct=28)
+                     msg=f"De-duplicated call legs into {n_sessions:,} sessions.", pct=24)
 
             queues = distinct_queues(sdf)
+
+            yield ev(stage="queues", msg="Reading the Queues report (abandoned calls)…", pct=32)
+            queues_report = parse_queues_report(queues_path)
+            queues = sorted(set(queues) | set(queues_report_queue_names(queues_report)))
 
             biz = business_context
             if biz is None and company_url:
@@ -297,7 +316,7 @@ def api_process_stream(run_id):
             tiers = classify_queues(queues, business_context=biz)
 
             yield ev(stage="analyze", msg="Calculating the missed-call impact…", pct=62)
-            result = build_result(sdf, tiers)
+            result = build_result(sdf, tiers, queues_report=queues_report)
             if reporting_period:
                 result.reporting_period = reporting_period
 
@@ -347,12 +366,21 @@ def _business_summary_from(biz):
 
 
 def _run_pipeline_and_build(run_id, upload_path, messages):
-    from pipeline import parse_sessions, build_result, distinct_queues
+    from pipeline import (parse_sessions, build_result, distinct_queues,
+                          parse_queues_report, queues_report_queue_names)
     from claude_client import classify_queues
     from deck import build_deck
 
     sdf = parse_sessions(upload_path)
     queues = distinct_queues(sdf)
+
+    # Mandatory Queues report (2nd upload) — the only source of abandoned data.
+    queues_path = UPLOAD_FOLDER / f"{run_id}_queues.xlsx"
+    if not queues_path.exists():
+        raise ValueError("The Queues report is missing — please re-upload both files.")
+    queues_report = parse_queues_report(queues_path)
+    # Tier both queue-name sets together so the abandoned table can be tiered.
+    queues = sorted(set(queues) | set(queues_report_queue_names(queues_report)))
 
     # Business context via Firecrawl is crawled up-front (discover step) and
     # cached in the session. Build it here only as a fallback, BEFORE tiering,
@@ -369,7 +397,7 @@ def _run_pipeline_and_build(run_id, upload_path, messages):
         session["business_context"] = business_context
 
     tiers = classify_queues(queues, business_context=business_context)
-    result = build_result(sdf, tiers)
+    result = build_result(sdf, tiers, queues_report=queues_report)
 
     override_period = session.get("reporting_period", "").strip()
     if override_period:

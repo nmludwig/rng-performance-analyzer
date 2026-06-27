@@ -77,6 +77,53 @@ class QueueStats:
 
 
 @dataclass
+class QueueAbandon:
+    """One queue's abandonment from the RingCentral Queues performance report."""
+    name: str
+    ext: str = ""
+    inbound: int = 0
+    answered: int = 0
+    abandoned: int = 0
+    tier: str = ""
+    classification: str = ""
+
+    @property
+    def abandon_rate(self) -> float:
+        return self.abandoned / self.inbound if self.inbound else 0.0
+
+    @property
+    def answer_rate(self) -> float:
+        return self.answered / self.inbound if self.inbound else 0.0
+
+
+@dataclass
+class QueuesReport:
+    """Account-level abandonment from the RingCentral *Queues* performance report.
+
+    This is an AGGREGATE (per-queue totals) over a different population than the
+    per-call Calls export: it counts ONLY calls that entered an ACD call queue.
+    It is the only source that distinguishes abandoned-in-queue callers.
+    """
+    inbound: int = 0
+    answered: int = 0
+    abandoned: int = 0
+    voicemail: int = 0
+    avg_speed_answer: str = ""
+    avg_wait: str = ""
+    longest_wait: str = ""
+    sla_pct: float = 0.0
+    queues: list[QueueAbandon] = field(default_factory=list)
+
+    @property
+    def abandon_rate(self) -> float:
+        return self.abandoned / self.inbound if self.inbound else 0.0
+
+    @property
+    def answer_rate(self) -> float:
+        return self.answered / self.inbound if self.inbound else 0.0
+
+
+@dataclass
 class PipelineResult:
     # Raw / dedup counts
     raw_inbound_legs: int
@@ -116,6 +163,7 @@ class PipelineResult:
     avg_answered_minutes: float = 3.0  # mean talk time of answered calls (minutes)
 
     queue_stats: dict[str, QueueStats] = field(default_factory=dict)
+    queues_report: Optional[QueuesReport] = None   # real abandoned data (2nd upload)
     reporting_period: str = ""
     reconciliation_ok: bool = True
     reconciliation_note: str = ""
@@ -312,10 +360,12 @@ def parse_sessions(path: Path) -> pd.DataFrame:
     return sdf
 
 
-def build_result(sdf: pd.DataFrame, queue_tiers: dict[str, dict]) -> PipelineResult:
+def build_result(sdf: pd.DataFrame, queue_tiers: dict[str, dict],
+                 queues_report: Optional[QueuesReport] = None) -> PipelineResult:
     """Apply tiering, spam filter, and compute all headline figures.
 
     queue_tiers: {queue_name: {"tier": "A".."D", "classification": "..."}}
+    queues_report: optional parsed Queues report supplying real abandoned data.
     """
     raw_inbound_legs = sdf.attrs.get("raw_inbound_legs", len(sdf))
     inbound_sessions = len(sdf)
@@ -470,6 +520,13 @@ def build_result(sdf: pd.DataFrame, queue_tiers: dict[str, dict]) -> PipelineRes
         else:
             qs.missed += 1
 
+    # Tier the Queues-report queues (back-office excluded from the abandoned story)
+    if queues_report:
+        for qa in queues_report.queues:
+            meta = queue_tiers.get(qa.name, {})
+            qa.tier = (meta.get("tier") or "C")
+            qa.classification = meta.get("classification") or ""
+
     computed = answered + total_missed
     recon_ok = computed == universe_sessions
     recon_note = (f"OK: {computed} outcomes == {universe_sessions} universe sessions"
@@ -503,6 +560,7 @@ def build_result(sdf: pd.DataFrame, queue_tiers: dict[str, dict]) -> PipelineRes
         midday_miss_rate=midday_miss_rate,
         avg_answered_minutes=avg_answered_minutes,
         queue_stats=queue_stats,
+        queues_report=queues_report,
         reporting_period=reporting_period,
         reconciliation_ok=recon_ok,
         reconciliation_note=recon_note,
@@ -512,3 +570,89 @@ def build_result(sdf: pd.DataFrame, queue_tiers: dict[str, dict]) -> PipelineRes
 
 def distinct_queues(sdf: pd.DataFrame) -> list[str]:
     return sorted(q for q in sdf["queue"].dropna().unique() if q and q != "Unknown")
+
+
+def _to_int(val) -> int:
+    if pd.isna(val):
+        return 0
+    try:
+        return int(round(float(str(val).strip().replace(",", ""))))
+    except (ValueError, TypeError):
+        return 0
+
+
+def _to_pct(val) -> float:
+    """Parse a percentage cell that may be '52.3', '52.3%' or a 0-1 fraction."""
+    if pd.isna(val):
+        return 0.0
+    s = str(val).strip().replace("%", "")
+    try:
+        f = float(s)
+    except ValueError:
+        return 0.0
+    return f / 100.0 if f > 1.0 else f
+
+
+def parse_queues_report(path: Path) -> QueuesReport:
+    """Parse the RingCentral *Queues* performance report (the 2nd upload).
+
+    Expects the workbook to contain a ``KPIs`` sheet (account totals) and a
+    ``Queues`` sheet (per-queue rows). Raises ValueError with a clear message
+    if the file looks like the Calls export or is otherwise unrecognized.
+    """
+    xl = pd.ExcelFile(path)
+    names_lower = {n.strip().lower(): n for n in xl.sheet_names}
+
+    kpi_sheet = names_lower.get("kpis")
+    queues_sheet = names_lower.get("queues")
+    if not kpi_sheet or not queues_sheet:
+        raise ValueError(
+            "This doesn't look like a RingCentral Queues report. It should have "
+            "'KPIs' and 'Queues' tabs (Performance Reports → Queues → Download → Excel). "
+            f"Found sheets: {xl.sheet_names}."
+        )
+
+    kdf = pd.read_excel(path, sheet_name=kpi_sheet, dtype=str)
+    kdf.columns = [c.strip() for c in kdf.columns]
+    if "# Abandoned" not in kdf.columns or len(kdf) == 0:
+        raise ValueError(
+            "The Queues report's KPIs tab is missing the '# Abandoned' column. "
+            "Re-download the Queues performance report from analytics.ringcentral.com."
+        )
+    k = kdf.iloc[0]
+
+    report = QueuesReport(
+        inbound=_to_int(k.get("# Inbound")),
+        answered=_to_int(k.get("# Answered")),
+        abandoned=_to_int(k.get("# Abandoned")),
+        voicemail=_to_int(k.get("# Voicemail")),
+        avg_speed_answer=str(k.get("Avg. Speed of Answer") or "").strip(),
+        avg_wait=str(k.get("Avg. Wait Time") or "").strip(),
+        longest_wait=str(k.get("Longest Wait Time") or "").strip(),
+        sla_pct=_to_pct(k.get("% SLA")),
+    )
+
+    qdf = pd.read_excel(path, sheet_name=queues_sheet, dtype=str)
+    qdf.columns = [c.strip() for c in qdf.columns]
+    for _, row in qdf.iterrows():
+        name = str(row.get("Name") or "").strip()
+        if not name:
+            continue
+        inbound = _to_int(row.get("# Inbound"))
+        if inbound == 0 and _to_int(row.get("# Abandoned")) == 0:
+            continue  # skip empty/idle queues
+        report.queues.append(QueueAbandon(
+            name=name,
+            ext=str(row.get("Ext") or "").strip(),
+            inbound=inbound,
+            answered=_to_int(row.get("# Answered")),
+            abandoned=_to_int(row.get("# Abandoned")),
+        ))
+    return report
+
+
+def queues_report_queue_names(report: Optional[QueuesReport]) -> list[str]:
+    """Queue names from the Queues report, for inclusion in tiering."""
+    if not report:
+        return []
+    return [q.name for q in report.queues]

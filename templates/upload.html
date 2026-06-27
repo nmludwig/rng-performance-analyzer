@@ -28,8 +28,20 @@
   </p>
 
   <form method="POST" action="{{ url_for('upload', run_id=run_id) }}" enctype="multipart/form-data">
-    <label for="report">Excel file (.xlsx)</label>
+    <label for="report">1. Calls export — Excel (.xlsx)</label>
+    <p style="font-size:0.82rem;color:#888;margin:0.1rem 0 0.4rem;">
+      Performance Reports → <strong>Calls</strong> tab → Download → Excel. Drives dedup,
+      missed-call timing, and queue tiering.
+    </p>
     <input type="file" id="report" name="report" accept=".xlsx,.xls"
+           style="width:100%;padding:0.6rem 0;margin-bottom:1.25rem;font-size:0.95rem;" required>
+
+    <label for="queues_report">2. Queues report — Excel (.xlsx) <span style="color:#c0392b;font-weight:700;">required</span></label>
+    <p style="font-size:0.82rem;color:#888;margin:0.1rem 0 0.4rem;">
+      Performance Reports → <strong>Queues</strong> tab → Download → Excel. This is the only
+      file that contains <strong>abandoned-in-queue</strong> calls and wait-time / service-level data.
+    </p>
+    <input type="file" id="queues_report" name="queues_report" accept=".xlsx,.xls"
            style="width:100%;padding:0.6rem 0;margin-bottom:1.25rem;font-size:0.95rem;" required>
 
     <label for="reporting_period">Reporting period <span style="font-weight:400;color:#999;">(optional)</span></label>
@@ -72,7 +84,12 @@
           (To focus on specific call queues, use the first dropdown →
           <strong>Queues</strong> tab and select them.)</li>
       <li>Click <strong>Download</strong> (top-right) and choose <strong>Excel</strong>.</li>
-      <li>Upload that file above. De-duplication, spam filtering, and queue tiering are all automatic.</li>
+      <li>Upload that file as <strong>file 1</strong> above.</li>
+      <li><strong>Then repeat for the Queues report:</strong> click the <strong>Queues</strong> tab
+          (next to Calls), keep the same date range, <strong>Download → Excel</strong>, and upload
+          it as <strong>file 2</strong>. This file is what carries the
+          <strong>abandoned-in-queue</strong> counts, wait times, and service level — the Calls
+          export doesn't include them.</li>
     </ol>
 
     <!-- Required columns -->

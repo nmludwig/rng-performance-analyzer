@@ -389,7 +389,16 @@ def _slide3(prs, r: PipelineResult, ctx, narr):
     _title_block(s, narr.get("title", "Where AI Receptionist captures revenue today"),
                  narr.get("subtitle", ""))
 
-    abandon_rate = r.abandoned_total / r.universe_sessions if r.universe_sessions else 0
+    # Real abandoned data comes from the Queues report (2nd upload). The Calls
+    # export doesn't carry an "Abandoned" disposition, so prefer the Queues
+    # report; fall back to the Calls-derived figure only if it's absent.
+    qr = r.queues_report
+    if qr and qr.inbound:
+        abandoned_n = qr.abandoned
+        abandon_rate = qr.abandon_rate
+    else:
+        abandoned_n = r.abandoned_total
+        abandon_rate = r.abandoned_total / r.universe_sessions if r.universe_sessions else 0
 
     # Two stacked stat cards on the left
     lx, lw = Inches(0.5), Inches(4.15)
@@ -398,10 +407,10 @@ def _slide3(prs, r: PipelineResult, ctx, narr):
     _rect(s, lx, ay, lw, ah, WHITE, line=CARD_BORDER, radius=True)
     _text(s, "CALLERS WHO WAITED,\nTHEN HUNG UP", lx + Inches(0.25), ay + Inches(0.22),
           lw - Inches(0.5), Inches(0.6), size=12, bold=True, color=GRAY, font="Arial")
-    _text(s, f"{r.abandoned_total:,}", lx + Inches(0.2), ay + Inches(0.78), lw - Inches(0.3), Inches(1.0),
+    _text(s, f"{abandoned_n:,}", lx + Inches(0.2), ay + Inches(0.78), lw - Inches(0.3), Inches(1.0),
           size=58, bold=True, color=RC_RED, font="Arial")
     _rich(s, [[(f"{abandon_rate*100:.1f}%", {"bold": True, "size": 12, "color": DARK}),
-               (" of inbound queue calls were abandoned in queue", {"size": 12, "color": GRAY})]],
+               (" of queue calls were abandoned while waiting", {"size": 12, "color": GRAY})]],
           lx + Inches(0.25), ay + Inches(1.78), lw - Inches(0.5), Inches(0.4))
 
     # Card B — answered under 60s
@@ -415,13 +424,35 @@ def _slide3(prs, r: PipelineResult, ctx, narr):
                (" of answered calls — short, routine calls AIR can handle", {"size": 12, "color": GRAY})]],
           lx + Inches(0.25), by + Inches(1.78), lw - Inches(0.5), Inches(0.4))
 
-    # Right — most-abandoned queues table
+    # Right — most-abandoned queues table (from the Queues report when present)
     rx = Inches(5.0)
     _text(s, "Where callers give up — most-abandoned queues", rx, Inches(1.95),
           Inches(7.8), Inches(0.35), size=14, bold=True, color=DARK, font="Arial")
-    top_ab = sorted((q for q in r.queue_stats.values() if q.abandoned_total > 0),
-                    key=lambda q: q.abandoned_total, reverse=True)[:12]
-    _abandon_table(s, top_ab, rx, Inches(2.4), Inches(7.85))
+
+    if qr and qr.queues:
+        top_ab = sorted((q for q in qr.queues if q.abandoned > 0 and q.tier != "D"),
+                        key=lambda q: q.abandoned, reverse=True)[:11]
+        _abandon_table_qr(s, top_ab, rx, Inches(2.4), Inches(7.85))
+        # Wait-time / SLA context strip
+        bits = []
+        if qr.avg_wait:
+            bits.append(("Avg. wait ", qr.avg_wait))
+        if qr.longest_wait:
+            bits.append(("Longest wait ", qr.longest_wait))
+        if qr.sla_pct:
+            bits.append(("Service level ", f"{qr.sla_pct*100:.0f}%"))
+        if bits:
+            segs = []
+            for i, (label, val) in enumerate(bits):
+                if i:
+                    segs.append(("    ·    ", {"size": 11, "color": CARD_BORDER}))
+                segs.append((label, {"size": 11, "color": GRAY}))
+                segs.append((val, {"size": 11, "bold": True, "color": RC_RED}))
+            _rich(s, [segs], rx, Inches(6.35), Inches(7.85), Inches(0.35))
+    else:
+        top_ab = sorted((q for q in r.queue_stats.values() if q.abandoned_total > 0),
+                        key=lambda q: q.abandoned_total, reverse=True)[:12]
+        _abandon_table(s, top_ab, rx, Inches(2.4), Inches(7.85))
 
     # Takeaway strip
     _rect(s, Inches(0.5), Inches(6.85), Inches(12.33), Pt(0.5), CARD_BORDER)
@@ -461,6 +492,44 @@ def _abandon_table(s, queues, x, y, w):
             if j == 1:
                 col = tier_col.get(q.tier, DARK); bold = True
             elif j == 3:
+                col = RC_RED if q.abandon_rate >= 0.5 else DARK
+                bold = q.abandon_rate >= 0.5
+            else:
+                col = DARK; bold = False
+            _cell(c, v, col, bold=bold, size=9,
+                  align=PP_ALIGN.LEFT if j == 0 else PP_ALIGN.CENTER)
+
+
+def _abandon_table_qr(s, queues, x, y, w):
+    """Most-abandoned-queues table sourced from the Queues report (real abandoned)."""
+    rows = len(queues) + 1
+    row_in = 0.34
+    tbl_shape = s.shapes.add_table(rows, 5, x, y, w, Inches(row_in * rows))
+    tbl = tbl_shape.table
+    tbl.first_row = False
+    tbl.horz_banding = False
+    widths = [3.75, 0.7, 1.2, 1.2, 1.0]
+    for j, ww in enumerate(widths):
+        tbl.columns[j].width = Inches(ww)
+    for i in range(rows):
+        tbl.rows[i].height = Inches(row_in)
+    headers = ["Queue", "Tier", "Inbound", "Abandoned", "Ab. %"]
+    for j, htext in enumerate(headers):
+        c = tbl.cell(0, j)
+        c.fill.solid(); c.fill.fore_color.rgb = RC_NAVY
+        _cell(c, htext, WHITE, bold=True, size=9,
+              align=PP_ALIGN.LEFT if j == 0 else PP_ALIGN.CENTER)
+    tier_col = {"A": RC_RED, "B": RC_GOLD, "C": RC_BLUE}
+    for i, q in enumerate(queues, 1):
+        bg = ROW_ALT if i % 2 else WHITE
+        vals = [q.name[:38], q.tier or "C", f"{q.inbound:,}",
+                f"{q.abandoned:,}", f"{round(q.abandon_rate*100)}%"]
+        for j, v in enumerate(vals):
+            c = tbl.cell(i, j)
+            c.fill.solid(); c.fill.fore_color.rgb = bg
+            if j == 1:
+                col = tier_col.get(q.tier, DARK); bold = True
+            elif j == 4:
                 col = RC_RED if q.abandon_rate >= 0.5 else DARK
                 bold = q.abandon_rate >= 0.5
             else:
@@ -1015,6 +1084,15 @@ def build_deck(result: PipelineResult, run_id: str, customer: str, ae_name: str,
         "top_missed_queues": {q.name: q.total_missed for q in top_queues},
     }
 
+    # Real abandoned-in-queue data from the Queues report (2nd upload)
+    qr = result.queues_report
+    if qr and qr.inbound:
+        ctx["queue_inbound"] = qr.inbound
+        ctx["queue_abandoned"] = qr.abandoned
+        ctx["queue_abandon_rate_pct"] = round(qr.abandon_rate * 100, 1)
+        ctx["queue_longest_wait"] = qr.longest_wait
+        ctx["queue_sla_pct"] = round(qr.sla_pct * 100)
+
     # Business context + modeling overrides
     business = business_context if (business_context and business_context.get("available")) else None
     ctx["business"] = business
@@ -1042,8 +1120,13 @@ def build_deck(result: PipelineResult, run_id: str, customer: str, ae_name: str,
     narr2 = _narr_titles(ctx, prior_instructions, "slide2")
     narr_hourly = {"title": "Calls slip away after hours, on weekends — and even midday",
                    "subtitle": f"Inbound miss rate by hour of day · {result.reporting_period} · when the business closes or gets busy, calls go unanswered"}
+    if qr and qr.inbound:
+        narr3_sub = (f"{qr.abandoned:,} of {qr.inbound:,} queue callers abandoned "
+                     f"({qr.abandon_rate*100:.0f}%) · short routine calls · {result.reporting_period}")
+    else:
+        narr3_sub = f"Abandoned-in-queue callers and short routine calls · Tier A+B+C · {result.reporting_period}"
     narr3 = {"title": "Where AI Receptionist captures revenue today",
-             "subtitle": f"Abandoned-in-queue callers and short routine calls · Tier A+B+C · {result.reporting_period}"}
+             "subtitle": narr3_sub}
     narr4 = {"title": "Queue-level missed call analysis (Tier A+B+C)",
              "subtitle": f"Session-deduplicated · spam-filtered · {result.reporting_period} · back-office (Tier D) excluded · {len(result.queue_stats)} queues shown"}
 
