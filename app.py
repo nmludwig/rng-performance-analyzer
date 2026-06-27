@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 from flask import (
     Flask, request, session, redirect, url_for,
-    render_template, send_file, jsonify, flash
+    render_template, send_file, jsonify, flash, Response, stream_with_context
 )
 from dotenv import load_dotenv
 
@@ -228,6 +228,102 @@ def api_process(run_id):
     })
 
 
+@app.route("/api/process_stream/<run_id>")
+def api_process_stream(run_id):
+    """Run the pipeline while streaming real per-stage progress to the browser (SSE).
+
+    The heavy work runs inside the response generator, so each ``yield`` flushes
+    a progress event as that stage completes. We only READ the Flask session
+    (writing mid-stream is impossible once headers are sent); the finished deck
+    is found on the deterministic path ``<tmp>/rc_analyzer_decks/{run_id}.pptx``
+    by the download route, so no session write is needed.
+    """
+    guard = require_auth()
+    if guard:
+        return guard
+    if session.get("run_id") != run_id:
+        return Response(
+            "data: " + json.dumps({"error": "Session mismatch — please start over."}) + "\n\n",
+            mimetype="text/event-stream",
+        )
+
+    upload_path = UPLOAD_FOLDER / f"{run_id}.xlsx"
+    if not upload_path.exists():
+        return Response(
+            "data: " + json.dumps({"error": "Uploaded file not found."}) + "\n\n",
+            mimetype="text/event-stream",
+        )
+
+    # Capture everything we need from the session up-front (no mid-stream reads).
+    customer = session.get("customer", "")
+    ae_name = session.get("ae_name", "")
+    company_url = session.get("company_url", "").strip()
+    business_context = session.get("business_context")
+    reporting_period = session.get("reporting_period", "").strip()
+    overrides = session.get("overrides", {}) or {}
+    messages = session.get("messages", [])
+    download_url = url_for("download", run_id=run_id)
+    biz_summary_seed = business_context
+
+    @stream_with_context
+    def gen():
+        def ev(**payload):
+            return "data: " + json.dumps(payload) + "\n\n"
+
+        try:
+            from pipeline import parse_sessions, build_result, distinct_queues
+            from claude_client import classify_queues
+            from deck import build_deck
+
+            yield ev(stage="parse", msg="Reading the call export…", pct=8)
+            sdf = parse_sessions(upload_path)
+            n_sessions = len(sdf)
+            yield ev(stage="parse",
+                     msg=f"De-duplicated call legs into {n_sessions:,} sessions.", pct=28)
+
+            queues = distinct_queues(sdf)
+
+            biz = business_context
+            if biz is None and company_url:
+                yield ev(stage="profile", msg="Profiling the business from its website…", pct=36)
+                try:
+                    from business_context import build_business_context
+                    biz = build_business_context(company_url, customer, queues)
+                except Exception as e:
+                    biz = {"available": False, "reason": f"error: {e}"}
+
+            yield ev(stage="classify",
+                     msg=f"Classifying {len(queues)} call queues by revenue relevance…", pct=46)
+            tiers = classify_queues(queues, business_context=biz)
+
+            yield ev(stage="analyze", msg="Calculating the missed-call impact…", pct=62)
+            result = build_result(sdf, tiers)
+            if reporting_period:
+                result.reporting_period = reporting_period
+
+            yield ev(stage="deck", msg="Writing the slides with Claude…", pct=78)
+            build_deck(
+                result=result,
+                run_id=run_id,
+                customer=customer,
+                ae_name=ae_name,
+                prior_instructions=messages,
+                business_context=biz,
+                overrides=overrides,
+            )
+
+            yield ev(stage="done", msg="Deck ready.", pct=100,
+                     download_url=download_url,
+                     business=_business_summary_from(biz))
+        except ValueError as e:
+            yield ev(error=str(e))
+        except Exception as e:
+            yield ev(error=f"Processing error: {e}")
+
+    return Response(gen(), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
 def _business_summary():
     """Lightweight business-context payload for the results UI."""
     return _business_summary_from(session.get("business_context"))
@@ -302,8 +398,14 @@ def download(run_id):
 
     pptx_path = session.get("pptx_path")
     if not pptx_path or not Path(pptx_path).exists():
-        flash("No deck found — please generate one first.")
-        return redirect(url_for("generate", run_id=run_id))
+        # SSE generation can't write the session mid-stream; fall back to the
+        # deterministic deck path build_deck always writes.
+        deterministic = Path(tempfile.gettempdir()) / "rc_analyzer_decks" / f"{run_id}.pptx"
+        if deterministic.exists():
+            pptx_path = str(deterministic)
+        else:
+            flash("No deck found — please generate one first.")
+            return redirect(url_for("generate", run_id=run_id))
 
     filename = session.get("filename", "report").replace(".xlsx", "")
     return send_file(pptx_path, as_attachment=True, download_name=f"{filename}_AI_Business_Case.pptx")

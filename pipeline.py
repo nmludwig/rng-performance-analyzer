@@ -17,6 +17,7 @@ Methodology (locked, validated against real FBM export):
 """
 
 from __future__ import annotations
+import numpy as np
 import pandas as pd
 from pathlib import Path
 from dataclasses import dataclass, field
@@ -238,43 +239,69 @@ def parse_sessions(path: Path) -> pd.DataFrame:
     df["_start"] = df.get("Call Start Time").apply(_parse_start_time) if "Call Start Time" in df.columns else None
     df["_row_order"] = range(len(df))
 
-    sessions = []
-    for session_id, group in df.groupby("Session Id", sort=False):
-        group = group.sort_values("_row_order")
-        outcome = _classify_session(group)
-        max_call = group["_call_seconds"].max()
-        handle_seconds = float(group["_handle_seconds"].max())
-        entry_queue = group.iloc[0]["Queue"]
-        entry_queue = str(entry_queue).strip() if pd.notna(entry_queue) else ""
-        # prefer first non-blank queue for attribution
-        if not entry_queue:
-            non_blank = group["Queue"].dropna()
-            entry_queue = str(non_blank.iloc[0]).strip() if len(non_blank) else "Unknown"
+    # ------------------------------------------------------------------
+    # Collapse legs -> one row per session via VECTORIZED groupby.
+    # (A per-group Python loop here is O(sessions) with heavy per-group
+    # pandas ops and blew up memory/time on large exports — ~60k sessions
+    # timed the worker out. Everything below is expressed as column ops.)
+    # ------------------------------------------------------------------
+    # df is already in export row order; preserve it for "first non-blank" picks.
+    result_str = df["Result"].astype(str).str.strip()
+    df["_ans_leg"] = (df["_handle_seconds"] > 0) | (result_str == OUTCOME_ANSWERED)
+    df["_vmab"] = result_str == OUTCOME_VM_ABANDONED
+    df["_vmmiss"] = result_str == OUTCOME_VM_MISSED
+    df["_aband"] = result_str == OUTCOME_ABANDONED
 
-        starts = [s for s in group["_start"].tolist() if s is not None] if "_start" in group else []
-        start_time = starts[0] if starts else None
-        in_bh = False
-        if start_time is not None:
-            in_bh = (start_time.weekday() in BUSINESS_DAYS
-                     and BUSINESS_START_HOUR <= start_time.hour < BUSINESS_END_HOUR)
+    # Normalize Queue / From Number so blanks become NA and groupby.first()
+    # naturally returns the first NON-blank value in row order.
+    q = df["Queue"].astype("string").str.strip()
+    df["_queue_norm"] = q.mask(q.isna() | (q == ""), other=pd.NA)
+    if "From Number" in df.columns:
+        fn = df["From Number"].astype("string").str.strip()
+        df["_from_norm"] = fn.mask(fn.isna() | (fn == ""), other=pd.NA)
+    else:
+        df["_from_norm"] = pd.array([pd.NA] * len(df), dtype="string")
 
-        from_number = ""
-        if "From Number" in group.columns:
-            fn = group["From Number"].dropna()
-            from_number = str(fn.iloc[0]).strip() if len(fn) else ""
+    gb = df.groupby("Session Id", sort=False)
+    handle_max = gb["_handle_seconds"].max()
+    call_max = gb["_call_seconds"].max()
+    ans = gb["_ans_leg"].max()
+    vmab = gb["_vmab"].max()
+    vmmiss = gb["_vmmiss"].max()
+    aband = gb["_aband"].max()
+    queue_first = gb["_queue_norm"].first()      # first non-NA in row order
+    from_first = gb["_from_norm"].first()
+    start_first = gb["_start"].first() if "_start" in df.columns else None
 
-        sessions.append({
-            "session_id": session_id,
-            "outcome": outcome,
-            "queue": entry_queue,
-            "handle_seconds": handle_seconds,
-            "is_spam": max_call <= SPAM_MAX_SECONDS,
-            "start_time": start_time,
-            "from_number": from_number,
-            "in_business_hours": in_bh,
-        })
+    # Outcome by priority: Answered > VM/Abandoned > VM/Missed > Abandoned > Missed
+    outcome = np.select(
+        [ans.values, vmab.values, vmmiss.values, aband.values],
+        [OUTCOME_ANSWERED, OUTCOME_VM_ABANDONED, OUTCOME_VM_MISSED, OUTCOME_ABANDONED],
+        default=OUTCOME_MISSED,
+    )
 
-    sdf = pd.DataFrame(sessions)
+    start_vals = start_first.values if start_first is not None else np.array([None] * len(handle_max))
+
+    sdf = pd.DataFrame({
+        "session_id": handle_max.index.to_numpy(),
+        "outcome": outcome,
+        "queue": queue_first.fillna("Unknown").astype(str).to_numpy(),
+        "handle_seconds": handle_max.astype(float).to_numpy(),
+        "is_spam": (call_max <= SPAM_MAX_SECONDS).to_numpy(),
+        "start_time": start_vals,
+        "from_number": from_first.fillna("").astype(str).to_numpy(),
+    })
+
+    # Business-hours flag, vectorized from the (python datetime / None) starts.
+    st = pd.to_datetime(pd.Series(start_vals), errors="coerce")
+    in_bh = (
+        st.notna()
+        & st.dt.weekday.isin(BUSINESS_DAYS)
+        & (st.dt.hour >= BUSINESS_START_HOUR)
+        & (st.dt.hour < BUSINESS_END_HOUR)
+    )
+    sdf["in_business_hours"] = in_bh.to_numpy()
+
     sdf.attrs["raw_inbound_legs"] = raw_inbound_legs
     return sdf
 
