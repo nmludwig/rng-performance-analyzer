@@ -119,13 +119,19 @@ def _logo(slide):
           size=22, bold=True, color=RC_ORANGE, font="Arial")
 
 
-def _footer(slide, page):
-    _text(slide, str(page), Inches(0.45), Inches(7.12), Inches(0.5), Inches(0.3),
-          size=9, color=GRAY)
+def _footer(slide, page=None):
+    # Page number is stamped in a final pass (see _stamp_page_numbers); the
+    # optional `page` arg is ignored so adding/removing slides never desyncs.
     _text(slide, "Confidential", Inches(5.9), Inches(7.12), Inches(1.5), Inches(0.3),
           size=9, color=GRAY, align=PP_ALIGN.CENTER)
     _text(slide, "©2026 RingCentral", Inches(11.0), Inches(7.12), Inches(1.9), Inches(0.3),
           size=9, color=GRAY, align=PP_ALIGN.RIGHT)
+
+
+def _stamp_page_numbers(prs):
+    for i, slide in enumerate(prs.slides, 1):
+        _text(slide, str(i), Inches(0.45), Inches(7.12), Inches(0.5), Inches(0.3),
+              size=9, color=GRAY)
 
 
 def _title_block(slide, title, subtitle):
@@ -546,6 +552,73 @@ def _full_table(s, queues, x, y, w):
 
 
 # ---------------------------------------------------------------------------
+# Slide — predicted call reasons (Firecrawl business context)
+# ---------------------------------------------------------------------------
+
+_TIER_BADGE = {
+    "A": (RC_RED, RGBColor(0xFC, 0xEC, 0xEC), "Sales"),
+    "B": (RC_GOLD, RGBColor(0xFB, 0xF3, 0xE0), "Product"),
+    "C": (RC_BLUE, RGBColor(0xE9, 0xEE, 0xF6), "Front desk"),
+    "D": (GRAY, LIGHT, "Back-office"),
+}
+
+
+def _slide_call_reasons(prs, r: PipelineResult, ctx, narr):
+    s = prs.slides.add_slide(prs.slide_layouts[6])
+    _logo(s)
+    biz = ctx.get("business") or {}
+    summary = (biz.get("summary") or "").strip()
+    url = biz.get("url", "")
+    _title_block(s, narr.get("title", "What your callers are likely calling about"),
+                 narr.get("subtitle", f"Predicted from {url} · mapped to your queues — so coverage gaps mean lost business"))
+
+    # Business profile band
+    by = Inches(1.85)
+    _rect(s, Inches(0.5), by, Inches(12.33), Inches(1.0), LIGHT, line=CARD_BORDER, radius=True)
+    industry = (biz.get("industry") or "").strip()
+    lobs = biz.get("lines_of_business") or []
+    head = industry if industry else "Business profile"
+    _text(s, head, Inches(0.8), by + Inches(0.16), Inches(4.0), Inches(0.35),
+          size=14, bold=True, color=RC_BLUE, font="Arial")
+    if lobs:
+        _text(s, " · ".join(str(x) for x in lobs[:6]), Inches(0.8), by + Inches(0.56), Inches(11.4), Inches(0.35),
+              size=11, color=GRAY)
+    if summary:
+        _text(s, summary, Inches(4.9), by + Inches(0.16), Inches(7.7), Inches(0.36),
+              size=11, italic=True, color=DARK, line_spacing=1.0)
+
+    # Predicted call-reason cards (up to 6)
+    reasons = (biz.get("predicted_call_reasons") or [])[:6]
+    cw, chh = Inches(4.05), Inches(1.55)
+    xs = [Inches(0.5), Inches(4.68), Inches(8.86)]
+    ys = [Inches(3.1), Inches(4.85)]
+    for idx, item in enumerate(reasons):
+        cx = xs[idx % 3]; cy = ys[idx // 3]
+        tier = str(item.get("tier", "C")).upper()[:1]
+        col, bg, tlabel = _TIER_BADGE.get(tier, _TIER_BADGE["C"])
+        _rect(s, cx, cy, cw, chh, WHITE, line=CARD_BORDER, radius=True)
+        _rect(s, cx, cy, Inches(0.12), chh, col)
+        _text(s, str(item.get("reason", ""))[:48], cx + Inches(0.32), cy + Inches(0.18),
+              cw - Inches(1.6), Inches(0.55), size=14, bold=True, color=RC_BLUE, font="Arial")
+        # tier badge
+        bw = Inches(1.15)
+        _rect(s, cx + cw - bw - Inches(0.18), cy + Inches(0.2), bw, Inches(0.34), bg, radius=True)
+        _text(s, tlabel, cx + cw - bw - Inches(0.18), cy + Inches(0.225), bw, Inches(0.3),
+              size=9, bold=True, color=col, align=PP_ALIGN.CENTER, font="Arial")
+        _text(s, str(item.get("why", ""))[:120], cx + Inches(0.32), cy + Inches(0.8),
+              cw - Inches(0.55), Inches(0.7), size=11, color=GRAY, line_spacing=1.05)
+        if item.get("revenue_relevant"):
+            _text(s, "● revenue-relevant", cx + Inches(0.32), cy + chh - Inches(0.32),
+                  cw - Inches(0.55), Inches(0.28), size=9, bold=True, color=RC_ORANGE)
+
+    _text(s, "Predicted from public website content — confirm with the customer. Every missed call above is a "
+             "missed revenue or retention moment AIR would have answered.",
+          Inches(0.5), Inches(6.75), Inches(12.33), Inches(0.5),
+          size=10, italic=True, color=GRAY, align=PP_ALIGN.CENTER)
+    _footer(s)
+
+
+# ---------------------------------------------------------------------------
 # ROI model (assumptions are clearly labelled on the slides)
 # ---------------------------------------------------------------------------
 
@@ -560,7 +633,7 @@ AVG_ORDER_VALUE = 500              # $ per recovered order (editable assumption)
 CAPTURE_RATES = [0.02, 0.05, 0.10]
 
 
-def _roi_model(r: PipelineResult) -> dict:
+def _roi_model(r: PipelineResult, air_rate: float = AIR_RATE_PER_MIN) -> dict:
     days = r.days_in_period or 30
     per_day_missed = r.total_missed / days
     missed_per_year = per_day_missed * 365
@@ -569,7 +642,7 @@ def _roi_model(r: PipelineResult) -> dict:
 
     # AIR fields every inbound call; minutes = calls x avg talk minutes
     air_minutes_month = inbound_per_month * r.avg_answered_minutes
-    air_cost_month = air_minutes_month * AIR_RATE_PER_MIN
+    air_cost_month = air_minutes_month * air_rate
     air_cost_year = air_cost_month * 12
 
     # Staffing to answer every inbound call across all hours (the AIR equivalent).
@@ -592,6 +665,7 @@ def _roi_model(r: PipelineResult) -> dict:
         "fte_hi": fte_hi,
         "hire_lo": hire_lo,
         "hire_hi": hire_hi,
+        "air_rate": air_rate,
     }
 
 
@@ -685,7 +759,7 @@ def _slide_cost(prs, r: PipelineResult, ctx, narr):
         [("• Unlimited concurrent calls, all branches", {"size": 12, "color": GRAY})],
     ], rx + Inches(0.35), ly + Inches(2.35), lw - Inches(0.7), Inches(1.6), line_spacing=1.15, space_after=7)
 
-    _text(s, f"Assumes ~{round(m['air_minutes_month']):,} AIR minutes/mo at ${AIR_RATE_PER_MIN:.2f}/min "
+    _text(s, f"Assumes ~{round(m['air_minutes_month']):,} AIR minutes/mo at ${m['air_rate']:.2f}/min "
              f"and ~${COST_PER_FTE/1000:.0f}K fully-loaded per agent. Edit assumptions to fit the account.",
           Inches(0.5), Inches(6.45), Inches(12.33), Inches(0.4),
           size=10, italic=True, color=GRAY, align=PP_ALIGN.CENTER)
@@ -700,8 +774,10 @@ def _slide_revenue(prs, r: PipelineResult, ctx, narr):
     s = prs.slides.add_slide(prs.slide_layouts[6])
     _logo(s)
     m = ctx["roi"]
+    aov = ctx.get("aov", AVG_ORDER_VALUE)
+    cap_hi = ctx.get("capture_override") or 0.05
     _title_block(s, narr.get("title", "The ROI: missed calls become recovered orders"),
-                 narr.get("subtitle", f"{round(m['missed_per_year']):,} revenue-relevant missed calls/year (spam already removed) · ${AVG_ORDER_VALUE} avg order value"))
+                 narr.get("subtitle", f"{round(m['missed_per_year']):,} revenue-relevant missed calls/year (spam already removed) · ${aov:,} avg order value"))
 
     # Funnel strip
     fy = Inches(1.95)
@@ -723,22 +799,22 @@ def _slide_revenue(prs, r: PipelineResult, ctx, narr):
     # Recovered-revenue table by capture rate
     _text(s, "Annual recovered revenue by capture rate", Inches(0.5), Inches(3.25),
           Inches(12.3), Inches(0.35), size=14, bold=True, color=DARK, font="Arial")
-    _revenue_table(s, m, Inches(0.5), Inches(3.7), Inches(12.33))
+    _revenue_table(s, m, aov, cap_hi, Inches(0.5), Inches(3.7), Inches(12.33))
 
-    # Headline takeaway (5% capture)
-    rec5 = 0.05 * m["missed_per_year"] * AVG_ORDER_VALUE
+    # Headline takeaway (capture rate)
+    rec5 = cap_hi * m["missed_per_year"] * aov
     _rect(s, Inches(0.5), Inches(6.25), Inches(12.33), Inches(0.7), RC_BLUE, radius=True)
     _rich(s, [[
         (f"{_money(rec5)} recovered/year ", {"bold": True, "size": 17, "color": WHITE, "font": "Arial"}),
-        (f"at just 5% capture and ${AVG_ORDER_VALUE}/order — against ", {"size": 14, "color": RGBColor(0xCD,0xD9,0xEA)}),
+        (f"at {round(cap_hi*100)}% capture and ${aov:,}/order — against ", {"size": 14, "color": RGBColor(0xCD,0xD9,0xEA)}),
         (f"{_money(m['air_cost_year'])} ", {"bold": True, "size": 17, "color": RC_ORANGE, "font": "Arial"}),
         ("of AIR investment.", {"size": 14, "color": RGBColor(0xCD,0xD9,0xEA)}),
     ]], Inches(0.7), Inches(6.4), Inches(12.0), Inches(0.45), anchor=MSO_ANCHOR.MIDDLE, align=PP_ALIGN.CENTER)
     _footer(s, 8)
 
 
-def _revenue_table(s, m, x, y, w):
-    aovs = [250, 500, 1000]
+def _revenue_table(s, m, aov, cap_hi, x, y, w):
+    aovs = [max(50, round(aov / 2)), aov, aov * 2]
     rows = len(CAPTURE_RATES) + 1
     cols = len(aovs) + 1
     row_in = 0.55
@@ -754,18 +830,18 @@ def _revenue_table(s, m, x, y, w):
     # header
     _cell(tbl.cell(0, 0), "Capture rate  ╲  Avg order value", WHITE, bold=True, size=11)
     tbl.cell(0, 0).fill.solid(); tbl.cell(0, 0).fill.fore_color.rgb = RC_NAVY
-    for j, aov in enumerate(aovs, 1):
+    for j, col_aov in enumerate(aovs, 1):
         c = tbl.cell(0, j)
         c.fill.solid(); c.fill.fore_color.rgb = RC_NAVY
-        _cell(c, f"${aov}/order", WHITE, bold=True, size=11, align=PP_ALIGN.CENTER)
+        _cell(c, f"${col_aov:,}/order", WHITE, bold=True, size=11, align=PP_ALIGN.CENTER)
     for i, cap in enumerate(CAPTURE_RATES, 1):
         c0 = tbl.cell(i, 0)
         c0.fill.solid(); c0.fill.fore_color.rgb = ROW_ALT if i % 2 else WHITE
         _cell(c0, f"{round(cap*100)}% of missed calls", DARK, bold=True, size=12)
-        for j, aov in enumerate(aovs, 1):
-            rec = cap * m["missed_per_year"] * aov
+        for j, col_aov in enumerate(aovs, 1):
+            rec = cap * m["missed_per_year"] * col_aov
             c = tbl.cell(i, j)
-            highlight = (cap == 0.05 and aov == 500)
+            highlight = (abs(cap - cap_hi) < 1e-9 and col_aov == aov)
             c.fill.solid()
             c.fill.fore_color.rgb = RGBColor(0xFF, 0xF1, 0xE3) if highlight else (ROW_ALT if i % 2 else WHITE)
             _cell(c, _money(rec), RC_ORANGE if highlight else DARK,
@@ -784,7 +860,7 @@ def _slide_investment(prs, r: PipelineResult, ctx, narr):
                  narr.get("subtitle", "Simple usage-based pricing — pay for minutes AIR actually handles, nothing to install"))
 
     tiles = [
-        (f"${AIR_RATE_PER_MIN:.2f}", "per AIR minute", RC_BLUE),
+        (f"${m['air_rate']:.2f}", "per AIR minute", RC_BLUE),
         (f"{round(m['air_minutes_month']):,}", "AIR minutes / month", RC_BLUE),
         (f"{_money(m['air_cost_month'])}", "per month", RC_ORANGE),
         (f"{_money(m['air_cost_year'])}", "per year", RC_ORANGE),
@@ -846,7 +922,8 @@ def _slide_next(prs, r: PipelineResult, ctx, narr):
               size=12, color=GRAY, line_spacing=1.05)
         y = Emu(int(y) + int(rh) + int(gap))
 
-    rec5 = 0.05 * m["missed_per_year"] * AVG_ORDER_VALUE
+    cap_hi = ctx.get("capture_override") or 0.05
+    rec5 = cap_hi * m["missed_per_year"] * ctx.get("aov", AVG_ORDER_VALUE)
     _text(s, f"The opportunity: ~{_money(rec5)}/year in recovered revenue for ~{_money(m['air_cost_year'])} in AIR investment.",
           Inches(0.5), Inches(6.95), Inches(12.33), Inches(0.4),
           size=13, bold=True, italic=True, color=RC_BLUE, align=PP_ALIGN.CENTER)
@@ -902,10 +979,13 @@ def _range_or_pct(lo, hi, agg):
 # ---------------------------------------------------------------------------
 
 def build_deck(result: PipelineResult, run_id: str, customer: str, ae_name: str,
-               prior_instructions: list[dict] | None = None) -> Path:
+               prior_instructions: list[dict] | None = None,
+               business_context: dict | None = None,
+               overrides: dict | None = None) -> Path:
     out_dir = Path(tempfile.gettempdir()) / "rc_analyzer_decks"
     out_dir.mkdir(exist_ok=True)
     out_path = out_dir / f"{run_id}.pptx"
+    overrides = overrides or {}
 
     sales_queue_calls = sum(q.total_missed for q in result.queue_stats.values() if q.tier == "A")
     top_queues = sorted(result.queue_stats.values(), key=lambda q: q.total_missed, reverse=True)[:5]
@@ -934,7 +1014,29 @@ def build_deck(result: PipelineResult, run_id: str, customer: str, ae_name: str,
         "num_queues": len(result.queue_stats),
         "top_missed_queues": {q.name: q.total_missed for q in top_queues},
     }
-    ctx["roi"] = _roi_model(result)
+
+    # Business context + modeling overrides
+    business = business_context if (business_context and business_context.get("available")) else None
+    ctx["business"] = business
+
+    def _num(v):
+        try:
+            return float(v) if v is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    aov = _num(overrides.get("avg_order_value"))
+    if aov is None and business:
+        aov = _num(business.get("suggested_avg_order_value"))
+    ctx["aov"] = int(aov) if aov and aov > 0 else AVG_ORDER_VALUE
+
+    air_rate = _num(overrides.get("air_rate_per_min"))
+    ctx["air_rate"] = air_rate if air_rate and air_rate > 0 else AIR_RATE_PER_MIN
+
+    cap = _num(overrides.get("capture_rate"))
+    ctx["capture_override"] = cap if cap and 0 < cap < 1 else None
+
+    ctx["roi"] = _roi_model(result, ctx["air_rate"])
 
     narr1 = _narr1(ctx, prior_instructions)
     narr2 = _narr_titles(ctx, prior_instructions, "slide2")
@@ -954,12 +1056,15 @@ def build_deck(result: PipelineResult, run_id: str, customer: str, ae_name: str,
     _slide_hourly(prs, result, ctx, narr_hourly)
     _slide3(prs, result, ctx, narr3)
     _slide4(prs, result, ctx, narr4)
+    if business and business.get("predicted_call_reasons"):
+        _slide_call_reasons(prs, result, ctx, {})
     _slide_capabilities(prs, result, ctx, {})
     _slide_cost(prs, result, ctx, {})
     _slide_revenue(prs, result, ctx, {})
     _slide_investment(prs, result, ctx, {})
     _slide_next(prs, result, ctx, {})
 
+    _stamp_page_numbers(prs)
     prs.save(out_path)
     return out_path
 

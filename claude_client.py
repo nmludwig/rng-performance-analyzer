@@ -83,6 +83,86 @@ Rules:
 - Keep bullets under 12 words and narrative under 3 sentences."""
 
 
+BUSINESS_PROFILE_SYSTEM = """You are a RingCentral sales engineer profiling a prospect's business from their website, to tailor an inbound-call analysis.
+
+You are given (1) markdown scraped from the company's website and (2) the names of their actual phone call queues. From these, infer how this business runs its phones and WHY customers call.
+
+Return JSON only with this exact shape:
+{
+  "summary": "<=2 sentences on what the company does",
+  "industry": "<short industry label>",
+  "lines_of_business": ["<3-6 short phrases>"],
+  "predicted_call_reasons": [
+    {"reason": "<short label, e.g. 'Order status & tracking'>",
+     "why": "<<=14 words on why this business gets these calls>",
+     "tier": "A|B|C|D",
+     "revenue_relevant": true}
+  ],
+  "suggested_avg_order_value": <integer USD, your best defensible estimate for a typical order/transaction, or null if unknowable>,
+  "aov_basis": "<<=12 words explaining the order-value estimate, or empty>"
+}
+
+Rules:
+- Ground every claim in the website text or the queue names; do not invent specific facts (no fake revenue, locations, or customer names).
+- Predict 4-7 call reasons most likely for THIS business. Map each to a tier: A=direct sales, B=product/retail counter, C=branch main/front desk, D=back-office/support.
+- revenue_relevant=true when answering that call could win or retain revenue.
+- suggested_avg_order_value: reason from the business type (e.g. building-materials distributor -> larger orders; a salon -> small). Be conservative and defensible.
+- JSON only, no prose, no code fences."""
+
+
+def profile_business(markdown: str, customer: str, queue_names: list[str]) -> dict:
+    client = get_client()
+    queues = "\n".join(f"- {q}" for q in queue_names[:60])
+    user = (
+        f"Company name (as entered): {customer or 'unknown'}\n\n"
+        f"Their call queue names:\n{queues}\n\n"
+        f"Website content (markdown):\n{markdown}"
+    )
+    resp = client.messages.create(
+        model=MODEL,
+        max_tokens=1500,
+        system=BUSINESS_PROFILE_SYSTEM,
+        messages=[{"role": "user", "content": user}],
+    )
+    try:
+        data = _extract_json(resp.content[0].text)
+    except Exception:
+        return {"summary": "", "industry": "", "lines_of_business": [],
+                "predicted_call_reasons": [], "suggested_avg_order_value": None,
+                "aov_basis": ""}
+    return data if isinstance(data, dict) else {}
+
+
+OVERRIDE_SYSTEM = """You extract structured analysis overrides from a user's free-text instruction in a call-analysis tool.
+
+The user may state new business facts or modeling assumptions. Extract ONLY values they explicitly provide. Return JSON:
+{
+  "avg_order_value": <integer USD or null>,
+  "capture_rate": <decimal 0-1 or null>,      // e.g. "8% capture" -> 0.08
+  "air_rate_per_min": <decimal USD or null>,
+  "notes": "<other instructions to honor verbatim, or empty>"
+}
+
+Rules:
+- If the user only gives styling/wording instructions (not data), set all numeric fields null and put the instruction in notes.
+- Never guess numbers the user didn't give. JSON only, no prose."""
+
+
+def extract_overrides(instruction: str) -> dict:
+    client = get_client()
+    try:
+        resp = client.messages.create(
+            model=MODEL,
+            max_tokens=400,
+            system=OVERRIDE_SYSTEM,
+            messages=[{"role": "user", "content": instruction}],
+        )
+        data = _extract_json(resp.content[0].text)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
 def generate_narrative(context: dict, schema: dict, prior_instructions: list[dict] | None = None) -> dict:
     client = get_client()
     user = (

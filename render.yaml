@@ -11,3 +11,5 @@ services:
         generateValue: true
       - key: ANTHROPIC_API_KEY
         sync: false
+      - key: FIRECRAWL_API_KEY
+        sync: false

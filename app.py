@@ -109,6 +109,7 @@ def configure(run_id):
         customer = request.form.get("customer", "").strip()
         ae_name = request.form.get("ae_name", "").strip()
         reporting_period = request.form.get("reporting_period", "").strip()
+        company_url = request.form.get("company_url", "").strip()
 
         if not customer or not ae_name:
             flash("Please enter the customer name and your name.")
@@ -117,6 +118,9 @@ def configure(run_id):
         session["customer"] = customer
         session["ae_name"] = ae_name
         session["reporting_period"] = reporting_period
+        session["company_url"] = company_url
+        session["overrides"] = {}
+        session["business_context"] = None
 
         return redirect(url_for("generate", run_id=run_id))
 
@@ -163,7 +167,29 @@ def api_process(run_id):
     except Exception as e:
         return jsonify({"error": f"Processing error: {e}"}), 500
 
-    return jsonify({"ok": True, "download_url": url_for("download", run_id=run_id)})
+    return jsonify({
+        "ok": True,
+        "download_url": url_for("download", run_id=run_id),
+        "business": _business_summary(),
+    })
+
+
+def _business_summary():
+    """Lightweight business-context payload for the results UI."""
+    biz = session.get("business_context")
+    if not biz:
+        return None
+    if not biz.get("available"):
+        return {"available": False, "reason": biz.get("reason", "")}
+    return {
+        "available": True,
+        "summary": biz.get("summary", ""),
+        "industry": biz.get("industry", ""),
+        "predicted_call_reasons": [
+            r.get("reason", "") for r in (biz.get("predicted_call_reasons") or [])
+        ][:6],
+        "suggested_avg_order_value": biz.get("suggested_avg_order_value"),
+    }
 
 
 def _run_pipeline_and_build(run_id, upload_path, messages):
@@ -172,12 +198,25 @@ def _run_pipeline_and_build(run_id, upload_path, messages):
     from deck import build_deck
 
     sdf = parse_sessions(upload_path)
-    tiers = classify_queues(distinct_queues(sdf))
+    queues = distinct_queues(sdf)
+    tiers = classify_queues(queues)
     result = build_result(sdf, tiers)
 
     override_period = session.get("reporting_period", "").strip()
     if override_period:
         result.reporting_period = override_period
+
+    # Business context via Firecrawl (cached per run after first build)
+    business_context = session.get("business_context")
+    company_url = session.get("company_url", "").strip()
+    if business_context is None and company_url:
+        try:
+            from business_context import build_business_context
+            business_context = build_business_context(
+                company_url, session.get("customer", ""), queues)
+        except Exception as e:
+            business_context = {"available": False, "reason": f"error: {e}"}
+        session["business_context"] = business_context
 
     return build_deck(
         result=result,
@@ -185,6 +224,8 @@ def _run_pipeline_and_build(run_id, upload_path, messages):
         customer=session.get("customer", ""),
         ae_name=session.get("ae_name", ""),
         prior_instructions=messages,
+        business_context=business_context,
+        overrides=session.get("overrides", {}),
     )
 
 
@@ -226,6 +267,23 @@ def api_refine(run_id):
     messages.append({"role": "user", "content": instruction})
     session["messages"] = messages
 
+    # Pull any structured facts the user supplied (order value, capture rate, etc.)
+    applied = []
+    try:
+        from claude_client import extract_overrides
+        ov = extract_overrides(instruction)
+        overrides = session.get("overrides", {}) or {}
+        for key, label in (("avg_order_value", "avg order value"),
+                           ("capture_rate", "capture rate"),
+                           ("air_rate_per_min", "AIR $/min")):
+            val = ov.get(key)
+            if val is not None:
+                overrides[key] = val
+                applied.append(f"{label} = {val}")
+        session["overrides"] = overrides
+    except Exception:
+        pass
+
     upload_path = UPLOAD_FOLDER / f"{run_id}.xlsx"
     if not upload_path.exists():
         return jsonify({"error": "Uploaded file not found."}), 404
@@ -236,7 +294,11 @@ def api_refine(run_id):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-    return jsonify({"ok": True, "download_url": url_for("download", run_id=run_id)})
+    return jsonify({
+        "ok": True,
+        "download_url": url_for("download", run_id=run_id),
+        "applied": applied,
+    })
 
 
 if __name__ == "__main__":

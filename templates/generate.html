@@ -16,6 +16,14 @@
   <div id="done-state" style="display:none;">
     <p style="color:#228b22;font-weight:600;font-size:1rem;margin-bottom:1rem;">✓ Deck ready!</p>
     <a id="download-link" href="#" class="btn btn-primary" style="margin-right:0.75rem;">Download .pptx</a>
+    <div id="business-panel" style="display:none;margin-top:1.25rem;border-top:1px solid #eee;padding-top:1rem;">
+      <div style="font-weight:700;color:#062E5C;font-size:0.95rem;margin-bottom:0.3rem;">
+        🔎 What we learned from the customer's website
+      </div>
+      <p id="biz-summary" style="color:#444;font-size:0.9rem;margin:0 0 0.6rem;"></p>
+      <div id="biz-reasons" style="display:flex;flex-wrap:wrap;gap:0.4rem;"></div>
+      <p id="biz-aov" style="color:#888;font-size:0.82rem;margin:0.6rem 0 0;"></p>
+    </div>
   </div>
 
   <div id="error-state" style="display:none;">
@@ -26,15 +34,19 @@
 </div>
 
 <div class="card" id="refine-card" style="display:none;">
-  <h2>Refine the deck</h2>
-  <p style="color:#666;font-size:0.9rem;margin-bottom:1rem;">
-    Type an instruction and Claude will regenerate the deck. Example: "Make the queue breakdown more prominent" or "Tighten the methodology bullets on slide 1."
+  <h2>Talk to Claude about this deck</h2>
+  <p style="color:#666;font-size:0.9rem;margin-bottom:0.5rem;">
+    Give instructions <em>or</em> new facts — Claude regenerates the deck with them. For example:
   </p>
-  <div id="chat-log" style="margin-bottom:1rem;max-height:220px;overflow-y:auto;"></div>
+  <ul style="color:#777;font-size:0.86rem;margin:0 0 1rem 1.1rem;line-height:1.6;">
+    <li><strong>New info:</strong> "Their average order is about $1,800" · "Assume a 7% capture rate"</li>
+    <li><strong>Instructions:</strong> "Make the after-hours gap more prominent" · "Tighten slide 1's bullets"</li>
+  </ul>
+  <div id="chat-log" style="margin-bottom:1rem;max-height:260px;overflow-y:auto;"></div>
   <form id="refine-form" style="display:flex;gap:0.75rem;">
-    <input type="text" id="instruction" placeholder="Your instruction…"
+    <input type="text" id="instruction" placeholder="Ask for a change or give Claude new information…"
            style="flex:1;margin-bottom:0;" required>
-    <button type="submit" class="btn btn-secondary" id="refine-btn">Regenerate</button>
+    <button type="submit" class="btn btn-secondary" id="refine-btn">Send</button>
   </form>
 </div>
 
@@ -57,6 +69,29 @@ async function runProcess() {
     return;
   }
   showDone(data.download_url);
+  renderBusiness(data.business);
+}
+
+function renderBusiness(biz) {
+  if (!biz || !biz.available) return;
+  document.getElementById("business-panel").style.display = "block";
+  document.getElementById("biz-summary").textContent =
+    (biz.industry ? biz.industry + " — " : "") + (biz.summary || "");
+  const reasons = document.getElementById("biz-reasons");
+  reasons.innerHTML = "";
+  (biz.predicted_call_reasons || []).forEach((r) => {
+    const chip = document.createElement("span");
+    chip.textContent = r;
+    chip.style.cssText = "background:#fff3e8;color:#FF7A00;font-weight:600;font-size:0.8rem;" +
+      "padding:0.25rem 0.7rem;border-radius:999px;";
+    reasons.appendChild(chip);
+  });
+  if (biz.suggested_avg_order_value) {
+    document.getElementById("biz-aov").textContent =
+      "Suggested avg order value for the revenue model: $" +
+      Number(biz.suggested_avg_order_value).toLocaleString() +
+      " — change it anytime in the console below.";
+  }
 }
 
 function setStatus(msg) {
@@ -101,7 +136,11 @@ document.getElementById("refine-form").addEventListener("submit", async (e) => {
   if (!res.ok || data.error) {
     appendChat("system", "Error: " + (data.error || "Unknown error"));
   } else {
-    appendChat("system", "Deck updated — download link refreshed.");
+    let msg = "Deck updated — download link refreshed.";
+    if (data.applied && data.applied.length) {
+      msg += " Applied: " + data.applied.join(", ") + ".";
+    }
+    appendChat("system", msg);
     document.getElementById("download-link").href = data.download_url + "?t=" + Date.now();
   }
 });
