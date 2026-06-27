@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 style="color:#fff;">Upload the call export</h1>
+<p class="subtitle" style="color:#bccde2;">
+  Customer: <strong style="color:#fff;">{{ customer }}</strong>
+</p>
+
+{% if business and business.available %}
+<div class="card" style="padding:1.1rem 1.5rem;border-left:4px solid #1f7a32;">
+  <div style="font-weight:700;color:#1f7a32;font-size:0.85rem;margin-bottom:0.25rem;">
+    ✓ Business profile ready
+  </div>
+  <p style="color:#555;font-size:0.88rem;margin:0;">
+    {{ business.industry }}{% if business.industry and business.summary %} — {% endif %}{{ business.summary }}
+  </p>
+</div>
+{% endif %}
+
+<div class="card">
+  <div style="display:inline-block;background:#fff3e8;color:#FF7A00;font-weight:700;
+       font-size:0.7rem;letter-spacing:0.07em;text-transform:uppercase;
+       padding:0.3rem 0.75rem;border-radius:999px;margin-bottom:0.75rem;">
+    {% if business and business.available %}Step 3 of 3{% else %}Step 2 of 2{% endif %} · Call data
+  </div>
+  <h2>Upload your call export</h2>
+  <p style="color:#777;font-size:0.9rem;margin-top:-0.5rem;margin-bottom:1.25rem;">
+    The RingCentral Performance Report → <strong>Calls</strong> export, as Excel (.xlsx).
+  </p>
+
+  <form method="POST" action="{{ url_for('upload', run_id=run_id) }}" enctype="multipart/form-data">
+    <label for="report">Excel file (.xlsx)</label>
+    <input type="file" id="report" name="report" accept=".xlsx,.xls"
+           style="width:100%;padding:0.6rem 0;margin-bottom:1.25rem;font-size:0.95rem;" required>
+
+    <label for="reporting_period">Reporting period <span style="font-weight:400;color:#999;">(optional)</span></label>
+    <input type="text" id="reporting_period" name="reporting_period" placeholder="auto-detected from data">
+    <p style="font-size:0.82rem;color:#888;margin:0.1rem 0 1.25rem;">
+      Leave blank to auto-detect it from the call dates. Queue tiers are classified automatically;
+      back-office queues are excluded from the analysis.
+    </p>
+
+    <button type="submit" class="btn btn-primary">Generate deck →</button>
+  </form>
+
+  <details style="margin-top:1.5rem;border-top:1px solid #f0f0f0;padding-top:1rem;" open>
+    <summary style="cursor:pointer;font-weight:700;font-size:0.95rem;color:#FF7A00;">
+      How to export the call report (step-by-step)
+    </summary>
+
+    <!-- Before you start -->
+    <div style="margin-top:1rem;background:#f6f9fc;border:1px solid #e3ebf3;border-radius:8px;padding:0.9rem 1.1rem;">
+      <div style="font-weight:700;font-size:0.85rem;color:#062E5C;margin-bottom:0.4rem;">Before you start</div>
+      <ul style="padding-left:1.2rem;line-height:1.7;color:#555;font-size:0.88rem;margin:0;">
+        <li>You need access to the <strong>customer's</strong> RingCentral account — typically via
+            <strong>SCP (Service Console Portal)</strong> with the customer's authorization.</li>
+        <li>From there, open the analytics site at
+            <strong>analytics.ringcentral.com</strong> for that account.</li>
+      </ul>
+    </div>
+
+    <!-- Steps -->
+    <ol style="padding-left:1.4rem;line-height:1.85;color:#444;font-size:0.9rem;margin-top:1rem;">
+      <li>In the left sidebar, open <strong>Analytics → Performance Reports</strong>.</li>
+      <li>At the top, click the <strong>Calls</strong> tab (next to Queues / Users / Meetings).
+          This is the call-by-call detail view — you'll see a <em>“Total … Sessions”</em> count above the table.</li>
+      <li>Click the <strong>date pill</strong> at the top (it says “Yesterday” by default) and pick your
+          range — e.g. <strong>Last Month</strong>, or use <strong>Custom Range</strong> for an exact
+          window — then click <strong>Done</strong>.</li>
+      <li>Leave the filter dropdowns at their defaults so nothing is excluded:
+          <strong>Call Type</strong> = All Types, <strong>Queue Calls</strong> = All Calls,
+          <strong>Call Length</strong> = All Length, <strong>Site Calls</strong> = all sites.
+          (To focus on specific call queues, use the first dropdown →
+          <strong>Queues</strong> tab and select them.)</li>
+      <li>Click <strong>Download</strong> (top-right) and choose <strong>Excel</strong>.</li>
+      <li>Upload that file above. De-duplication, spam filtering, and queue tiering are all automatic.</li>
+    </ol>
+
+    <!-- Required columns -->
+    <div style="margin-top:1rem;background:#fff8f0;border:1px solid #ffe0c2;border-radius:8px;padding:0.9rem 1.1rem;">
+      <div style="font-weight:700;font-size:0.85rem;color:#FF7A00;margin-bottom:0.4rem;">
+        The one thing that matters: the columns
+      </div>
+      <p style="color:#666;font-size:0.86rem;line-height:1.55;margin:0 0 0.55rem;">
+        Whatever the menu looks like in your account, the export just needs to contain these columns.
+        The first five are <strong>required</strong>; the rest unlock the hourly chart, repeat-caller
+        detection, and answered-call confirmation:
+      </p>
+      <div style="font-size:0.84rem;color:#444;line-height:1.7;">
+        <strong>Required:</strong> Session Id · Call Direction · Result · Call Length · Queue<br>
+        <strong>Recommended:</strong> Handle Time · Call Start Time · From Number
+      </div>
+      <p style="color:#888;font-size:0.8rem;line-height:1.5;margin:0.55rem 0 0;">
+        The Calls tab already includes these (From, Result, Length, Handle Time, Start Time, Queue,
+        Direction). If you see a <strong>Select Columns</strong> option, make sure all eight are checked.
+        If the export is missing a required column, the tool will tell you which one on the next screen.
+      </p>
+    </div>
+
+    <p style="color:#aaa;font-size:0.78rem;line-height:1.5;margin-top:0.9rem;margin-bottom:0;">
+      Tip: the export is one row per <em>call leg</em> — this tool automatically de-duplicates those
+      into one row per call (session), so you don't need to clean anything up first.
+    </p>
+  </details>
+</div>
+{% endblock %}

@@ -68,63 +68,117 @@ def index():
     return render_template("index.html")
 
 
-@app.route("/upload", methods=["POST"])
-def upload():
+@app.route("/start", methods=["POST"])
+def start():
+    """Step 1: capture the customer URL + names, then crawl before anything else."""
     guard = require_auth()
     if guard:
         return guard
+
+    customer = request.form.get("customer", "").strip()
+    ae_name = request.form.get("ae_name", "").strip()
+    company_url = request.form.get("company_url", "").strip()
+
+    if not customer or not ae_name:
+        flash("Please enter the customer name and your name.")
+        return redirect(url_for("index"))
+
+    run_id = uuid.uuid4().hex
+    session["run_id"] = run_id
+    session["customer"] = customer
+    session["ae_name"] = ae_name
+    session["company_url"] = company_url
+    session["reporting_period"] = ""
+    session["overrides"] = {}
+    session["business_context"] = None
+    session["messages"] = []
+    session["filename"] = None
+
+    if company_url:
+        return redirect(url_for("discover", run_id=run_id))
+    return redirect(url_for("upload_step", run_id=run_id))
+
+
+@app.route("/discover/<run_id>")
+def discover(run_id):
+    guard = require_auth()
+    if guard:
+        return guard
+    if session.get("run_id") != run_id:
+        flash("Session mismatch — please start over.")
+        return redirect(url_for("index"))
+    return render_template(
+        "discover.html",
+        run_id=run_id,
+        customer=session.get("customer"),
+        company_url=session.get("company_url"),
+    )
+
+
+@app.route("/api/discover/<run_id>", methods=["POST"])
+def api_discover(run_id):
+    """Crawl the customer's website and return the business profile for confirmation."""
+    guard = require_auth()
+    if guard:
+        return jsonify({"error": "Unauthorized"}), 401
+    if session.get("run_id") != run_id:
+        return jsonify({"error": "Session mismatch"}), 400
+
+    company_url = session.get("company_url", "").strip()
+    if not company_url:
+        return jsonify({"available": False, "reason": "no_url"})
+
+    biz = session.get("business_context")
+    if biz is None:
+        try:
+            from business_context import build_business_context
+            biz = build_business_context(company_url, session.get("customer", ""), [])
+        except Exception as e:
+            biz = {"available": False, "reason": f"error: {e}"}
+        session["business_context"] = biz
+
+    return jsonify(_business_summary_from(biz))
+
+
+@app.route("/upload-step/<run_id>")
+def upload_step(run_id):
+    guard = require_auth()
+    if guard:
+        return guard
+    if session.get("run_id") != run_id:
+        flash("Session mismatch — please start over.")
+        return redirect(url_for("index"))
+    return render_template(
+        "upload.html",
+        run_id=run_id,
+        customer=session.get("customer"),
+        business=_business_summary_from(session.get("business_context")),
+    )
+
+
+@app.route("/upload/<run_id>", methods=["POST"])
+def upload(run_id):
+    guard = require_auth()
+    if guard:
+        return guard
+    if session.get("run_id") != run_id:
+        flash("Session mismatch — please start over.")
+        return redirect(url_for("index"))
 
     file = request.files.get("report")
     if not file or not file.filename:
         flash("Please select a file.")
-        return redirect(url_for("index"))
-
+        return redirect(url_for("upload_step", run_id=run_id))
     if not file.filename.lower().endswith((".xlsx", ".xls")):
         flash("Only Excel files (.xlsx / .xls) are accepted.")
-        return redirect(url_for("index"))
+        return redirect(url_for("upload_step", run_id=run_id))
 
-    run_id = uuid.uuid4().hex
     upload_path = UPLOAD_FOLDER / f"{run_id}.xlsx"
     file.save(upload_path)
-
-    # Store run metadata in session
-    session["run_id"] = run_id
     session["filename"] = file.filename
-    session["messages"] = []
+    session["reporting_period"] = request.form.get("reporting_period", "").strip()
 
-    return redirect(url_for("configure", run_id=run_id))
-
-
-@app.route("/configure/<run_id>", methods=["GET", "POST"])
-def configure(run_id):
-    guard = require_auth()
-    if guard:
-        return guard
-
-    if session.get("run_id") != run_id:
-        flash("Session mismatch — please re-upload your file.")
-        return redirect(url_for("index"))
-
-    if request.method == "POST":
-        customer = request.form.get("customer", "").strip()
-        ae_name = request.form.get("ae_name", "").strip()
-        reporting_period = request.form.get("reporting_period", "").strip()
-        company_url = request.form.get("company_url", "").strip()
-
-        if not customer or not ae_name:
-            flash("Please enter the customer name and your name.")
-            return redirect(url_for("configure", run_id=run_id))
-
-        session["customer"] = customer
-        session["ae_name"] = ae_name
-        session["reporting_period"] = reporting_period
-        session["company_url"] = company_url
-        session["overrides"] = {}
-        session["business_context"] = None
-
-        return redirect(url_for("generate", run_id=run_id))
-
-    return render_template("configure.html", run_id=run_id, filename=session.get("filename"))
+    return redirect(url_for("generate", run_id=run_id))
 
 
 @app.route("/generate/<run_id>")
@@ -176,7 +230,10 @@ def api_process(run_id):
 
 def _business_summary():
     """Lightweight business-context payload for the results UI."""
-    biz = session.get("business_context")
+    return _business_summary_from(session.get("business_context"))
+
+
+def _business_summary_from(biz):
     if not biz:
         return None
     if not biz.get("available"):
@@ -185,6 +242,7 @@ def _business_summary():
         "available": True,
         "summary": biz.get("summary", ""),
         "industry": biz.get("industry", ""),
+        "lines_of_business": biz.get("lines_of_business", []),
         "predicted_call_reasons": [
             r.get("reason", "") for r in (biz.get("predicted_call_reasons") or [])
         ][:6],

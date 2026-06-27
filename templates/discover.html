@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 style="color:#fff;">Understanding the business</h1>
+<p class="subtitle" style="color:#bccde2;">
+  Customer: <strong style="color:#fff;">{{ customer }}</strong> ·
+  <span style="color:#bccde2;">{{ company_url }}</span>
+</p>
+
+<div class="card" id="status-card">
+  <!-- Crawling -->
+  <div id="crawling-state">
+    <p style="font-size:1rem;color:#444;margin-bottom:1rem;">
+      Crawling the customer's website to learn what they do and predict why their customers call…
+    </p>
+    <div id="spinner" style="width:36px;height:36px;border:4px solid #eee;border-top-color:#ff7a00;
+         border-radius:50%;animation:spin 0.8s linear infinite;"></div>
+  </div>
+
+  <!-- Result -->
+  <div id="result-state" style="display:none;">
+    <div style="display:inline-block;background:#eaf6ec;color:#1f7a32;font-weight:700;
+         font-size:0.72rem;letter-spacing:0.05em;text-transform:uppercase;
+         padding:0.3rem 0.75rem;border-radius:999px;margin-bottom:0.75rem;">
+      ✓ Here's what we learned
+    </div>
+    <h2 id="biz-industry" style="margin-bottom:0.4rem;"></h2>
+    <p id="biz-summary" style="color:#444;font-size:0.95rem;line-height:1.55;margin-bottom:1rem;"></p>
+
+    <div id="biz-lob-wrap" style="margin-bottom:1.25rem;display:none;">
+      <div style="font-weight:700;font-size:0.82rem;color:#062E5C;margin-bottom:0.4rem;">Lines of business</div>
+      <div id="biz-lob" style="display:flex;flex-wrap:wrap;gap:0.4rem;"></div>
+    </div>
+
+    <div id="biz-reasons-wrap" style="margin-bottom:1.25rem;display:none;">
+      <div style="font-weight:700;font-size:0.82rem;color:#062E5C;margin-bottom:0.4rem;">
+        Predicted reasons their customers call
+      </div>
+      <div id="biz-reasons" style="display:flex;flex-wrap:wrap;gap:0.4rem;"></div>
+    </div>
+
+    <p id="biz-aov" style="color:#888;font-size:0.85rem;margin-bottom:1.5rem;"></p>
+
+    <div style="border-top:1px solid #eee;padding-top:1.25rem;">
+      <p style="color:#666;font-size:0.9rem;margin-bottom:1rem;">
+        Does this look right? You can refine it later in the console. When you're ready, continue to upload
+        the call export.
+      </p>
+      <a href="{{ url_for('upload_step', run_id=run_id) }}" class="btn btn-primary">
+        Looks right — continue to upload →
+      </a>
+    </div>
+  </div>
+
+  <!-- No business context available -->
+  <div id="skip-state" style="display:none;">
+    <p style="color:#a85b00;font-weight:600;margin-bottom:0.5rem;">
+      We couldn't pull a useful profile from that website.
+    </p>
+    <p id="skip-reason" style="color:#777;font-size:0.88rem;margin-bottom:1.25rem;"></p>
+    <a href="{{ url_for('upload_step', run_id=run_id) }}" class="btn btn-primary">
+      Continue to upload anyway →
+    </a>
+  </div>
+</div>
+
+<style>
+@keyframes spin { to { transform: rotate(360deg); } }
+.chip { font-weight:600;font-size:0.8rem;padding:0.25rem 0.7rem;border-radius:999px; }
+.chip-lob { background:#eef2f8;color:#062E5C; }
+.chip-reason { background:#fff3e8;color:#FF7A00; }
+</style>
+
+<script>
+const runId = {{ run_id | tojson }};
+
+function chip(text, cls) {
+  const s = document.createElement("span");
+  s.className = "chip " + cls;
+  s.textContent = text;
+  return s;
+}
+
+async function discover() {
+  let data;
+  try {
+    const res = await fetch(`/api/discover/${runId}`, { method: "POST" });
+    data = await res.json();
+  } catch (e) {
+    data = { available: false, reason: String(e) };
+  }
+  document.getElementById("crawling-state").style.display = "none";
+
+  if (!data || !data.available) {
+    document.getElementById("skip-state").style.display = "block";
+    document.getElementById("skip-reason").textContent =
+      data && data.reason ? "Reason: " + data.reason : "";
+    return;
+  }
+
+  document.getElementById("result-state").style.display = "block";
+  document.getElementById("biz-industry").textContent = data.industry || "Business profile";
+  document.getElementById("biz-summary").textContent = data.summary || "";
+
+  const lob = data.lines_of_business || [];
+  if (lob.length) {
+    const wrap = document.getElementById("biz-lob");
+    lob.forEach((x) => wrap.appendChild(chip(x, "chip-lob")));
+    document.getElementById("biz-lob-wrap").style.display = "block";
+  }
+
+  const reasons = data.predicted_call_reasons || [];
+  if (reasons.length) {
+    const wrap = document.getElementById("biz-reasons");
+    reasons.forEach((x) => wrap.appendChild(chip(x, "chip-reason")));
+    document.getElementById("biz-reasons-wrap").style.display = "block";
+  }
+
+  if (data.suggested_avg_order_value) {
+    document.getElementById("biz-aov").textContent =
+      "Suggested avg order value for the revenue model: $" +
+      Number(data.suggested_avg_order_value).toLocaleString() +
+      " — you can change it later in the console.";
+  }
+}
+
+discover();
+</script>
+{% endblock %}
