@@ -33,6 +33,12 @@
       Performance Reports → <strong>Calls</strong> tab → Download → Excel. Drives dedup,
       missed-call timing, and queue tiering.
     </p>
+    <p style="font-size:0.8rem;color:#9a5a00;background:#fff8f0;border:1px solid #ffe0c2;
+       border-radius:6px;padding:0.5rem 0.7rem;margin:0.1rem 0 0.5rem;line-height:1.5;">
+      ⏱ Heads up: this is the big file. The Excel can take <strong>several minutes</strong> to
+      generate and download from the analytics portal, and may be <strong>~40&nbsp;MB</strong> for
+      a full month. Wait for it to finish downloading before selecting it here.
+    </p>
     <input type="file" id="report" name="report" accept=".xlsx,.xls"
            style="width:100%;padding:0.6rem 0;margin-bottom:1.25rem;font-size:0.95rem;" required>
 
@@ -51,7 +57,12 @@
       back-office queues are excluded from the analysis.
     </p>
 
-    <button type="submit" class="btn btn-primary">Generate deck →</button>
+    <button type="submit" id="generate-btn" class="btn btn-primary">Generate deck →</button>
+    <span id="upload-status" style="display:none;margin-left:0.85rem;font-size:0.88rem;
+          color:#9a5a00;vertical-align:middle;">
+      <span class="spinner" aria-hidden="true"></span>
+      Uploading your files — this can take a minute for a large export…
+    </span>
   </form>
 
   <details style="margin-top:1.5rem;border-top:1px solid #f0f0f0;padding-top:1rem;" open>
@@ -119,4 +130,34 @@
     </p>
   </details>
 </div>
+
+<style>
+  @keyframes rc-spin { to { transform: rotate(360deg); } }
+  .spinner {
+    display: inline-block;
+    width: 0.9rem; height: 0.9rem;
+    border: 2px solid #ffd6ac;
+    border-top-color: #FF7A00;
+    border-radius: 50%;
+    vertical-align: -2px;
+    margin-right: 0.4rem;
+    animation: rc-spin 0.7s linear infinite;
+  }
+  .btn[disabled] { opacity: 0.7; cursor: progress; }
+</style>
+<script>
+  (function () {
+    var form = document.querySelector('form[method="POST"]');
+    var btn = document.getElementById('generate-btn');
+    var status = document.getElementById('upload-status');
+    if (!form || !btn) return;
+    form.addEventListener('submit', function () {
+      // Native validation (required files) blocks submit before this fires only
+      // if invalid, so reaching here means the form is actually being sent.
+      btn.disabled = true;
+      btn.textContent = 'Uploading…';
+      if (status) status.style.display = 'inline-block';
+    });
+  })();
+</script>
 {% endblock %}
