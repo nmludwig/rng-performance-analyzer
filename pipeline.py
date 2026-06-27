@@ -230,13 +230,19 @@ def parse_sessions(path: Path) -> pd.DataFrame:
     if missing:
         raise ValueError(f"Missing expected columns: {missing}. Found: {list(df.columns)}")
 
-    df = df[df["Call Direction"].str.strip().str.lower() == "inbound"].copy()
+    df = df[df["Call Direction"].str.strip().str.lower() == "inbound"].reset_index(drop=True)
     raw_inbound_legs = len(df)
 
-    df["_handle_seconds"] = df.get("Handle Time", 0)
-    df["_handle_seconds"] = df["_handle_seconds"].apply(_to_seconds)
-    df["_call_seconds"] = df["Call Length"].apply(_to_seconds)
-    df["_start"] = df.get("Call Start Time").apply(_parse_start_time) if "Call Start Time" in df.columns else None
+    # Build derived columns from standalone Series (not df-views assigned back
+    # into df) so pandas' copy-on-write machinery doesn't emit a stream of
+    # ChainedAssignmentError FutureWarnings.
+    handle_src = df["Handle Time"] if "Handle Time" in df.columns else pd.Series(0, index=df.index)
+    df["_handle_seconds"] = handle_src.map(_to_seconds)
+    df["_call_seconds"] = df["Call Length"].map(_to_seconds)
+    if "Call Start Time" in df.columns:
+        df["_start"] = df["Call Start Time"].map(_parse_start_time)
+    else:
+        df["_start"] = None
     df["_row_order"] = range(len(df))
 
     # ------------------------------------------------------------------
