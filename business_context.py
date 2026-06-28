@@ -22,12 +22,21 @@ def _normalize_url(url: str) -> str:
     return url
 
 
-def _scrape_markdown(app, url: str) -> str | None:
-    """Scrape one URL to markdown, tolerant of firecrawl-py v1 and v2 shapes."""
+def _scrape_markdown(app, url: str, timeout_ms: int = 25000) -> str | None:
+    """Scrape one URL to markdown, tolerant of firecrawl-py v1 and v2 shapes.
+
+    A hard ``timeout_ms`` is passed through so a slow/unresponsive target
+    fails fast instead of blocking the (single) gunicorn worker for minutes —
+    a hung scrape here previously starved Render's health check and cancelled
+    deploys. The firecrawl SDK adds +5s to the request timeout internally.
+    """
     # v1: app.scrape_url(url, params={"formats": ["markdown"]})
     # v2: app.scrape(url, formats=["markdown"])
     result = None
     for attempt in (
+        lambda: app.scrape_url(url, params={"formats": ["markdown"]}, timeout=timeout_ms),
+        lambda: app.scrape_url(url, formats=["markdown"], timeout=timeout_ms),
+        lambda: app.scrape(url, formats=["markdown"], timeout=timeout_ms),
         lambda: app.scrape_url(url, params={"formats": ["markdown"]}),
         lambda: app.scrape_url(url, formats=["markdown"]),
         lambda: app.scrape(url, formats=["markdown"]),
