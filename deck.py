@@ -240,13 +240,13 @@ def _slide2(prs, r: PipelineResult, ctx, narr, sales_queue_calls):
     s = prs.slides.add_slide(prs.slide_layouts[6])
     _bg(s)
     _logo(s)
-    _title_block(s, narr.get("title", f"{r.total_missed:,} genuine missed calls across sales-taking queues"),
+    _title_block(s, narr.get("title", f"{r.total_missed:,} genuine missed calls across customer-facing queues"),
                  narr.get("subtitle", ""))
 
     # Left big-stat card
     lx, ly, lw, lh = Inches(0.5), Inches(1.95), Inches(3.25), Inches(4.7)
     _rect(s, lx, ly, lw, lh, WHITE, line=CARD_BORDER, radius=True)
-    _text(s, "GENUINE MISSED\nCALLS — A+B+C QUEUES", lx + Inches(0.25), ly + Inches(0.55),
+    _text(s, "GENUINE MISSED\nCALLS — CUSTOMER QUEUES", lx + Inches(0.25), ly + Inches(0.55),
           lw - Inches(0.5), Inches(0.7), size=12, bold=True, color=GRAY, font=FONT)
     # Size the headline number to the digit count so 5- and 6-figure totals
     # both fit on ONE line in the ~2.95in card (72pt overflowed and wrapped).
@@ -268,7 +268,7 @@ def _slide2(prs, r: PipelineResult, ctx, narr, sales_queue_calls):
           lx + Inches(0.25), ly + Inches(3.15), lw - Inches(0.5), Inches(0.4),
           size=13, bold=True, italic=True, color=RC_ORANGE, align=PP_ALIGN.CENTER)
     _rich(s, [[(f"{sales_queue_calls:,}", {"bold": True, "size": 13, "color": RC_RED}),
-               (" of these are confirmed\nsales-queue calls", {"size": 12, "color": DARK})]],
+               (" are revenue-line calls\n(sales · orders · bookings)", {"size": 12, "color": DARK})]],
           lx + Inches(0.25), ly + Inches(3.7), lw - Inches(0.5), Inches(0.8),
           align=PP_ALIGN.CENTER)
 
@@ -328,19 +328,26 @@ def _worst_table_qr(s, queues, x, y, w):
     tbl.columns[1].width = Inches(0.45)
     tbl.columns[2].width = Inches(0.55)
     tbl.columns[3].width = Inches(0.45)
-    headers = ["Queue", "T", "Aband", "%"]
+    headers = ["Queue", "Rev", "Aband", "%"]
     for j, htext in enumerate(headers):
         c = tbl.cell(0, j)
         c.fill.solid(); c.fill.fore_color.rgb = RC_NAVY
         _cell(c, htext, WHITE, bold=True, size=9, align=PP_ALIGN.CENTER if j else PP_ALIGN.LEFT)
     for i, q in enumerate(queues, 1):
         bg = ROW_ALT if i % 2 else WHITE
-        vals = [q.name[:26], q.tier or "C", f"{q.abandoned}", f"{round(q.abandon_rate*100)}%"]
+        # "Rev" column: ✓ marks a revenue-line queue (sales/orders/bookings).
+        is_rev = (q.tier or "C") in ("A", "B")
+        vals = [q.name[:26], "✓" if is_rev else "", f"{q.abandoned}", f"{round(q.abandon_rate*100)}%"]
         for j, v in enumerate(vals):
             c = tbl.cell(i, j)
             c.fill.solid(); c.fill.fore_color.rgb = bg
-            col = RC_RED if (j == 3 and q.abandon_rate >= 0.7) else DARK
-            _cell(c, v, col, bold=(j == 3 and q.abandon_rate >= 0.7), size=8.5,
+            if j == 1:
+                col = RC_ORANGE
+            elif j == 3 and q.abandon_rate >= 0.7:
+                col = RC_RED
+            else:
+                col = DARK
+            _cell(c, v, col, bold=(j == 1) or (j == 3 and q.abandon_rate >= 0.7), size=8.5,
                   align=PP_ALIGN.CENTER if j else PP_ALIGN.LEFT)
 
 
@@ -379,19 +386,25 @@ def _worst_table(s, queues, x, y, w):
     tbl.columns[1].width = Inches(0.45)
     tbl.columns[2].width = Inches(0.55)
     tbl.columns[3].width = Inches(0.45)
-    headers = ["Queue", "T", "Miss", "%"]
+    headers = ["Queue", "Rev", "Miss", "%"]
     for j, htext in enumerate(headers):
         c = tbl.cell(0, j)
         c.fill.solid(); c.fill.fore_color.rgb = RC_NAVY
         _cell(c, htext, WHITE, bold=True, size=9, align=PP_ALIGN.CENTER if j else PP_ALIGN.LEFT)
     for i, q in enumerate(queues, 1):
         bg = ROW_ALT if i % 2 else WHITE
-        vals = [q.name[:26], q.tier, f"{q.total_missed}", f"{round(q.miss_rate*100)}%"]
+        is_rev = (q.tier or "C") in ("A", "B")
+        vals = [q.name[:26], "✓" if is_rev else "", f"{q.total_missed}", f"{round(q.miss_rate*100)}%"]
         for j, v in enumerate(vals):
             c = tbl.cell(i, j)
             c.fill.solid(); c.fill.fore_color.rgb = bg
-            col = RC_RED if (j == 3 and q.miss_rate >= 0.7) else DARK
-            _cell(c, v, col, bold=(j == 3 and q.miss_rate >= 0.7), size=8.5,
+            if j == 1:
+                col = RC_ORANGE
+            elif j == 3 and q.miss_rate >= 0.7:
+                col = RC_RED
+            else:
+                col = DARK
+            _cell(c, v, col, bold=(j == 1) or (j == 3 and q.miss_rate >= 0.7), size=8.5,
                   align=PP_ALIGN.CENTER if j else PP_ALIGN.LEFT)
 
 
@@ -561,22 +574,22 @@ def _abandon_table(s, queues, x, y, w):
         tbl.columns[j].width = Inches(ww)
     for i in range(rows):
         tbl.rows[i].height = Inches(row_in)
-    headers = ["Queue", "Tier", "Abandoned", "Ab. %", "Ans. <60s"]
+    headers = ["Queue", "Rev", "Abandoned", "Ab. %", "Ans. <60s"]
     for j, htext in enumerate(headers):
         c = tbl.cell(0, j)
         c.fill.solid(); c.fill.fore_color.rgb = RC_NAVY
         _cell(c, htext, WHITE, bold=True, size=9,
               align=PP_ALIGN.LEFT if j == 0 else PP_ALIGN.CENTER)
-    tier_col = {"A": RC_RED, "B": RC_GOLD, "C": RC_BLUE}
     for i, q in enumerate(queues, 1):
         bg = ROW_ALT if i % 2 else WHITE
-        vals = [q.name[:40], q.tier, f"{q.abandoned_total:,}",
+        is_rev = (q.tier or "C") in ("A", "B")
+        vals = [q.name[:40], "✓" if is_rev else "", f"{q.abandoned_total:,}",
                 f"{round(q.abandon_rate*100)}%", f"{q.answered_under_60:,}"]
         for j, v in enumerate(vals):
             c = tbl.cell(i, j)
             c.fill.solid(); c.fill.fore_color.rgb = bg
             if j == 1:
-                col = tier_col.get(q.tier, DARK); bold = True
+                col = RC_ORANGE; bold = True
             elif j == 3:
                 col = RC_RED if q.abandon_rate >= 0.5 else DARK
                 bold = q.abandon_rate >= 0.5
@@ -599,22 +612,22 @@ def _abandon_table_qr(s, queues, x, y, w):
         tbl.columns[j].width = Inches(ww)
     for i in range(rows):
         tbl.rows[i].height = Inches(row_in)
-    headers = ["Queue", "Tier", "Inbound", "Abandoned", "Ab. %"]
+    headers = ["Queue", "Rev", "Inbound", "Abandoned", "Ab. %"]
     for j, htext in enumerate(headers):
         c = tbl.cell(0, j)
         c.fill.solid(); c.fill.fore_color.rgb = RC_NAVY
         _cell(c, htext, WHITE, bold=True, size=9,
               align=PP_ALIGN.LEFT if j == 0 else PP_ALIGN.CENTER)
-    tier_col = {"A": RC_RED, "B": RC_GOLD, "C": RC_BLUE}
     for i, q in enumerate(queues, 1):
         bg = ROW_ALT if i % 2 else WHITE
-        vals = [q.name[:38], q.tier or "C", f"{q.inbound:,}",
+        is_rev = (q.tier or "C") in ("A", "B")
+        vals = [q.name[:38], "✓" if is_rev else "", f"{q.inbound:,}",
                 f"{q.abandoned:,}", f"{round(q.abandon_rate*100)}%"]
         for j, v in enumerate(vals):
             c = tbl.cell(i, j)
             c.fill.solid(); c.fill.fore_color.rgb = bg
             if j == 1:
-                col = tier_col.get(q.tier, DARK); bold = True
+                col = RC_ORANGE; bold = True
             elif j == 4:
                 col = RC_RED if q.abandon_rate >= 0.5 else DARK
                 bold = q.abandon_rate >= 0.5
@@ -641,140 +654,165 @@ def _slide4(prs, r: PipelineResult, ctx, narr):
     qr = r.queues_report
     use_qr = bool(qr and qr.queues)
 
-    _title_block(s, narr.get("title", "Queue-level missed call analysis — sales-taking queues (Tier A+B+C)"),
+    _title_block(s, narr.get("title", "Where customers are getting missed — by queue"),
                  narr.get("subtitle",
                           "Per-queue abandoned calls from the RingCentral Queues report — "
                           "the only source that attributes missed calls to the queue they were waiting in."
                           if use_qr else ""))
 
-    # Tier summary cards
-    tier_meta = [
-        ("A", "Sales / revenue line", RC_RED, RGBColor(0xFC,0xEC,0xEC)),
-        ("B", "Customer-facing front line", RC_GOLD, RGBColor(0xFB,0xF3,0xE0)),
-        ("C", "Main line / reception", RC_BLUE, RGBColor(0xE9,0xEE,0xF6)),
+    # Why-we-filter lead sentence (the scoping rule, stated plainly).
+    _rich(s, [[("We count only queues a customer could call. ",
+                {"bold": True, "size": 11, "color": DARK}),
+               ("Internal / back-office lines (IT, accounting, HR, shipping) are excluded — "
+                "no customer is waiting on them, so a “missed” call there isn’t lost business.",
+                {"size": 11, "color": GRAY})]],
+          Inches(0.5), Inches(1.72), Inches(12.33), Inches(0.4))
+
+    # Scope summary: Included (customer-facing) · Revenue-line subset · Excluded.
+    all_q = list(qr.queues) if use_qr else list(r.queue_stats.values())
+    def _mis(q):
+        return q.abandoned if use_qr else q.total_missed
+    included = [q for q in all_q if (q.tier or "C") != "D"]
+    revenue = [q for q in included if (q.tier or "C") in ("A", "B")]
+    excluded = [q for q in all_q if (q.tier or "C") == "D"]
+
+    inc_inb = sum(q.inbound for q in included); inc_mis = sum(_mis(q) for q in included)
+    rev_inb = sum(q.inbound for q in revenue); rev_mis = sum(_mis(q) for q in revenue)
+    inc_rate = inc_mis / inc_inb if inc_inb else 0
+    rev_rate = rev_mis / rev_inb if rev_inb else 0
+    mis_word = "abandoned" if use_qr else "missed"
+
+    cards = [
+        ("INCLUDED · CUSTOMER-FACING", RC_BLUE, RGBColor(0xE9,0xEE,0xF6),
+         len(included), inc_inb, inc_mis, inc_rate, mis_word),
+        ("REVENUE-LINE ✓ (sales / orders / bookings)", RC_ORANGE, RGBColor(0xFF,0xF1,0xE3),
+         len(revenue), rev_inb, rev_mis, rev_rate, mis_word),
+        ("EXCLUDED · INTERNAL / BACK-OFFICE", GRAY, RGBColor(0xF1,0xF1,0xF1),
+         len(excluded), None, None, None, None),
     ]
     cw = Inches(4.05)
     cxs = [Inches(0.5), Inches(4.68), Inches(8.86)]
-    for (tier, label, col, bg), cx in zip(tier_meta, cxs):
-        if use_qr:
-            qs = [q for q in qr.queues if (q.tier or "C") == tier]
-            inb = sum(q.inbound for q in qs); mis = sum(q.abandoned for q in qs)
+    for (label, col, bg, nq, inb, mis, mr, mword), cx in zip(cards, cxs):
+        _rect(s, cx, Inches(2.18), cw, Inches(0.92), bg, line=col, line_w=Pt(1), radius=True)
+        _text(s, label, cx + Inches(0.22), Inches(2.3), cw - Inches(0.4), Inches(0.3),
+              size=10.5, bold=True, color=col, font=FONT)
+        if inb is None:
+            _rich(s, [[(f"{nq} ", {"bold": True, "size": 13, "color": DARK}),
+                       ("queues set aside — not customer-revenue facing",
+                        {"size": 10.5, "color": GRAY})]],
+                  cx + Inches(0.22), Inches(2.66), cw - Inches(0.4), Inches(0.35))
         else:
-            qs = [q for q in r.queue_stats.values() if q.tier == tier]
-            inb = sum(q.inbound for q in qs); mis = sum(q.total_missed for q in qs)
-        nq = len(qs)
-        mr = mis / inb if inb else 0
-        _rect(s, cx, Inches(1.85), cw, Inches(0.95), bg, line=col, line_w=Pt(1), radius=True)
-        _circle(s, cx + Inches(0.18), Inches(2.02), Inches(0.42), col, tier, size=15)
-        _text(s, label, cx + Inches(0.72), Inches(2.0), cw - Inches(0.85), Inches(0.35),
-              size=13, bold=True, color=col, font=FONT)
-        _rich(s, [[(f"{nq} ", {"bold": True, "size": 12, "color": DARK}),
-                   ("queues   ", {"size": 11, "color": GRAY}),
-                   (f"{inb:,} ", {"bold": True, "size": 12, "color": DARK}),
-                   ("inbound", {"size": 11, "color": GRAY})]],
-              cx + Inches(0.72), Inches(2.32), cw - Inches(0.8), Inches(0.25))
-        _rich(s, [[(f"{mis:,} ", {"bold": True, "size": 12, "color": col}),
-                   ("abandoned   " if use_qr else "missed   ", {"size": 11, "color": GRAY}),
-                   (f"{mr*100:.1f}%", {"bold": True, "size": 12, "color": col})]],
-              cx + Inches(0.72), Inches(2.55), cw - Inches(0.8), Inches(0.25))
+            _rich(s, [[(f"{nq} ", {"bold": True, "size": 12, "color": DARK}),
+                       ("queues   ", {"size": 10.5, "color": GRAY}),
+                       (f"{inb:,} ", {"bold": True, "size": 12, "color": DARK}),
+                       ("inbound   ", {"size": 10.5, "color": GRAY}),
+                       (f"{mis:,} ", {"bold": True, "size": 12, "color": col}),
+                       (f"{mword} ", {"size": 10.5, "color": GRAY}),
+                       (f"({mr*100:.0f}%)", {"bold": True, "size": 12, "color": col})]],
+                  cx + Inches(0.22), Inches(2.66), cw - Inches(0.4), Inches(0.35))
 
-    # Full queue table
-    order = {"A": 0, "B": 1, "C": 2, "D": 3}
+    # Full queue table — included queues only, ranked by impact (most missed first).
     if use_qr:
-        queues = sorted((q for q in qr.queues if (q.tier or "C") != "D"),
-                        key=lambda q: (order.get(q.tier or "C", 9), -q.abandoned))
-        _full_table_qr(s, queues, Inches(0.5), Inches(2.92), Inches(12.33))
+        queues = sorted(included, key=lambda q: -q.abandoned)
+        _full_table_qr(s, queues, Inches(0.5), Inches(3.22), Inches(12.33))
     else:
-        queues = sorted(r.queue_stats.values(),
-                        key=lambda q: (order.get(q.tier, 9), -q.total_missed))
-        _full_table(s, queues, Inches(0.5), Inches(2.92), Inches(12.33))
+        queues = sorted(included, key=lambda q: -q.total_missed)
+        _full_table(s, queues, Inches(0.5), Inches(3.22), Inches(12.33))
     _footer(s, 5)
+
+
+def _queue_type_label(tier, unstaffed):
+    """Plain-language queue type — no letter tiers. Revenue-line = sales/orders/bookings."""
+    if unstaffed:
+        return "UNSTAFFED — 0 agents answered"
+    return "Revenue-line ✓" if (tier or "C") in ("A", "B") else "General / reception"
 
 
 def _full_table_qr(s, queues, x, y, w):
     """Queue-level table sourced from the Queues report (real per-queue abandoned)."""
     rows = len(queues) + 1
     row_in = 0.135
-    tbl_shape = s.shapes.add_table(rows, 7, x, y, w, Inches(row_in * rows))
+    tbl_shape = s.shapes.add_table(rows, 6, x, y, w, Inches(row_in * rows))
     tbl = tbl_shape.table
     tbl.first_row = False
     tbl.horz_banding = False
-    widths = [4.6, 0.7, 3.6, 1.1, 1.0, 0.85, 0.85]
+    widths = [4.9, 2.43, 1.3, 1.3, 1.3, 1.1]
     for j, ww in enumerate(widths):
         tbl.columns[j].width = Inches(ww)
     for i in range(rows):
         tbl.rows[i].height = Inches(row_in)
-    headers = ["Queue Name", "Tier", "Classification", "Inbound", "Answered", "Abandoned", "Ab. %"]
+    headers = ["Queue Name", "Type", "Inbound", "Answered", "Abandoned", "Ab. %"]
     for j, htext in enumerate(headers):
         c = tbl.cell(0, j)
         c.fill.solid(); c.fill.fore_color.rgb = RC_NAVY
         _cell(c, htext, WHITE, bold=True, size=8.5, pad=0,
-              align=PP_ALIGN.LEFT if j in (0, 2) else PP_ALIGN.CENTER)
-    tier_col = {"A": RC_RED, "B": RC_GOLD, "C": RC_BLUE}
+              align=PP_ALIGN.LEFT if j in (0, 1) else PP_ALIGN.CENTER)
     for i, q in enumerate(queues, 1):
         bg = ROW_ALT if i % 2 else WHITE
         tier = q.tier or "C"
         # A queue with inbound calls but 0 answered is unstaffed/misconfigured —
         # that's a routing/staffing fix (Professional Services), NOT a license gap.
         unstaffed = q.answered == 0 and q.inbound > 0
-        classification = (q.classification or "")[:38]
-        if unstaffed:
-            classification = "UNSTAFFED — 0 agents answered"
-        vals = [q.name[:46], tier, classification,
+        qtype = _queue_type_label(tier, unstaffed)
+        vals = [q.name[:48], qtype,
                 f"{q.inbound:,}", f"{q.answered:,}", f"{q.abandoned:,}",
                 f"{round(q.abandon_rate*100)}%"]
         for j, v in enumerate(vals):
             c = tbl.cell(i, j)
             c.fill.solid(); c.fill.fore_color.rgb = bg
             if j == 1:
-                col = tier_col.get(tier, DARK); bold = True
-            elif j == 2 and unstaffed:
-                col = RC_GOLD; bold = True
-            elif j == 6:
+                col = (RC_GOLD if unstaffed
+                       else RC_ORANGE if tier in ("A", "B") else GRAY)
+                bold = unstaffed or tier in ("A", "B")
+            elif j == 5:
                 col = RC_RED if q.abandon_rate >= 0.5 else DARK
                 bold = q.abandon_rate >= 0.5
             else:
                 col = DARK; bold = False
             _cell(c, v, col, bold=bold, size=7.5, pad=0,
-                  align=PP_ALIGN.LEFT if j in (0, 2) else PP_ALIGN.CENTER)
+                  align=PP_ALIGN.LEFT if j in (0, 1) else PP_ALIGN.CENTER)
 
 
 def _full_table(s, queues, x, y, w):
     rows = len(queues) + 1
     row_in = 0.135
-    tbl_shape = s.shapes.add_table(rows, 7, x, y, w, Inches(row_in * rows))
+    tbl_shape = s.shapes.add_table(rows, 6, x, y, w, Inches(row_in * rows))
     tbl = tbl_shape.table
     tbl.first_row = False
     tbl.horz_banding = False
-    widths = [4.6, 0.7, 3.6, 1.1, 1.0, 0.85, 0.85]
+    widths = [4.9, 2.43, 1.3, 1.3, 1.3, 1.1]
     for j, ww in enumerate(widths):
         tbl.columns[j].width = Inches(ww)
     for i in range(rows):
         tbl.rows[i].height = Inches(row_in)
-    headers = ["Queue Name", "Tier", "Classification", "Inbound", "Missed", "Miss %", "Ans %"]
+    headers = ["Queue Name", "Type", "Inbound", "Missed", "Miss %", "Ans %"]
     for j, htext in enumerate(headers):
         c = tbl.cell(0, j)
         c.fill.solid(); c.fill.fore_color.rgb = RC_NAVY
         _cell(c, htext, WHITE, bold=True, size=8.5, pad=0,
-              align=PP_ALIGN.LEFT if j in (0, 2) else PP_ALIGN.CENTER)
-    tier_col = {"A": RC_RED, "B": RC_GOLD, "C": RC_BLUE}
+              align=PP_ALIGN.LEFT if j in (0, 1) else PP_ALIGN.CENTER)
     for i, q in enumerate(queues, 1):
         bg = ROW_ALT if i % 2 else WHITE
-        vals = [q.name[:46], q.tier, q.classification[:38],
+        tier = q.tier or "C"
+        unstaffed = getattr(q, "answered", None) == 0 and q.inbound > 0
+        qtype = _queue_type_label(tier, unstaffed)
+        vals = [q.name[:48], qtype,
                 f"{q.inbound:,}", f"{q.total_missed:,}",
                 f"{round(q.miss_rate*100)}%", f"{round(q.answer_rate*100)}%"]
         for j, v in enumerate(vals):
             c = tbl.cell(i, j)
             c.fill.solid(); c.fill.fore_color.rgb = bg
             if j == 1:
-                col = tier_col.get(q.tier, DARK); bold = True
-            elif j == 5:
+                col = (RC_GOLD if unstaffed
+                       else RC_ORANGE if tier in ("A", "B") else GRAY)
+                bold = unstaffed or tier in ("A", "B")
+            elif j == 4:
                 col = RC_RED if q.miss_rate >= 0.7 else DARK
                 bold = q.miss_rate >= 0.7
             else:
                 col = DARK; bold = False
             _cell(c, v, col, bold=bold, size=7.5, pad=0,
-                  align=PP_ALIGN.LEFT if j in (0, 2) else PP_ALIGN.CENTER)
+                  align=PP_ALIGN.LEFT if j in (0, 1) else PP_ALIGN.CENTER)
 
 
 # ---------------------------------------------------------------------------
@@ -829,7 +867,7 @@ def _slide_config_vs_air(prs, r: PipelineResult, ctx, narr):
     cy, ch = Inches(2.05), Inches(2.75)
     cards = [
         (Inches(0.5), Inches(3.55), WHITE, CARD_BORDER, DARK, GRAY,
-         "TOTAL GENUINE MISSED", f"{total:,}", "A+B+C queues · spam-filtered · de-duplicated",
+         "TOTAL GENUINE MISSED", f"{total:,}", "customer-facing queues · spam-filtered · de-duplicated",
          "Every inbound call that never reached a person."),
         (Inches(4.78), Inches(3.55), RGBColor(0xFB,0xF3,0xE0), RC_GOLD, RC_GOLD, GRAY,
          "CONFIG-FIXABLE (PRO SERVICES)", f"{config_fixable:,}",
@@ -888,10 +926,10 @@ def _slide_config_vs_air(prs, r: PipelineResult, ctx, narr):
 # ---------------------------------------------------------------------------
 
 _TIER_BADGE = {
-    "A": (RC_RED, RGBColor(0xFC, 0xEC, 0xEC), "Sales"),
-    "B": (RC_GOLD, RGBColor(0xFB, 0xF3, 0xE0), "Customer-facing"),
-    "C": (RC_BLUE, RGBColor(0xE9, 0xEE, 0xF6), "Main line"),
-    "D": (GRAY, LIGHT, "Back-office"),
+    "A": (RC_ORANGE, RGBColor(0xFF, 0xF1, 0xE3), "Revenue-line"),
+    "B": (RC_ORANGE, RGBColor(0xFF, 0xF1, 0xE3), "Revenue-line"),
+    "C": (RC_BLUE, RGBColor(0xE9, 0xEE, 0xF6), "General"),
+    "D": (GRAY, LIGHT, "Internal"),
 }
 
 
@@ -1327,7 +1365,10 @@ def build_deck(result: PipelineResult, run_id: str, customer: str, ae_name: str,
     out_path = out_dir / f"{run_id}.pptx"
     overrides = overrides or {}
 
-    sales_queue_calls = sum(q.total_missed for q in result.queue_stats.values() if q.tier == "A")
+    # Revenue-line = queues with clear buy/order/booking or customer-service intent
+    # (the old A + B tiers). These are the missed calls that most directly cost money.
+    sales_queue_calls = sum(q.total_missed for q in result.queue_stats.values()
+                            if (q.tier or "C") in ("A", "B"))
     top_queues = sorted(result.queue_stats.values(), key=lambda q: q.total_missed, reverse=True)[:5]
 
     ctx = {
@@ -1388,6 +1429,11 @@ def build_deck(result: PipelineResult, run_id: str, customer: str, ae_name: str,
     ctx["roi"] = _roi_model(result, ctx["air_rate"])
 
     narr1 = _narr1(ctx, prior_instructions)
+    # Always state the scoping rule on the methodology slide, regardless of what
+    # the narrative model returns — this is where "why we filter queues" lives.
+    narr1["subtitle"] = (f"RingCentral Performance Reports · {result.reporting_period} · "
+                         f"{result.universe_sessions:,} customer-facing sessions analyzed · "
+                         f"internal / back-office queues excluded (no customer on the line)")
     narr2 = _narr_titles(ctx, prior_instructions, "slide2")
     narr_hourly = {"title": "Calls slip away after hours, on weekends — and even midday",
                    "subtitle": f"Inbound miss rate by hour of day · {result.reporting_period} · when the business closes or gets busy, calls go unanswered"}
@@ -1395,11 +1441,12 @@ def build_deck(result: PipelineResult, run_id: str, customer: str, ae_name: str,
         narr3_sub = (f"{qr.abandoned:,} of {qr.inbound:,} queue callers abandoned "
                      f"({qr.abandon_rate*100:.0f}%) · short routine calls · {result.reporting_period}")
     else:
-        narr3_sub = f"Abandoned-in-queue callers and short routine calls · Tier A+B+C · {result.reporting_period}"
+        narr3_sub = f"Abandoned-in-queue callers and short routine calls · customer-facing queues · {result.reporting_period}"
     narr3 = {"title": "Where AI Receptionist captures revenue today",
              "subtitle": narr3_sub}
-    narr4 = {"title": "Queue-level missed call analysis (Tier A+B+C)",
-             "subtitle": f"Session-deduplicated · spam-filtered · {result.reporting_period} · back-office (Tier D) excluded · {len(result.queue_stats)} queues shown"}
+    narr4 = {"title": "Where customers are getting missed — by queue",
+             "subtitle": f"Session-deduplicated · spam-filtered · {result.reporting_period} · "
+                         f"customer-facing queues only · ranked by calls lost"}
 
     prs = Presentation()
     prs.slide_width = SLIDE_W
@@ -1450,16 +1497,16 @@ def _narr_titles(ctx, prior, which):
         return generate_narrative({**ctx, "slide": which}, schema, prior)
     except Exception:
         if which == "slide2":
-            return {"title": f"{ctx['total_missed']:,} genuine missed calls across sales-taking queues",
-                    "subtitle": f"Tier A+B+C · {ctx['reporting_period']} · session-deduplicated · spam-filtered · back-office excluded"}
-        return {"title": "Queue-level missed call analysis — sales-taking queues (Tier A+B+C)",
-                "subtitle": f"Session-deduplicated · spam-filtered · {ctx['reporting_period']} · back-office (Tier D) excluded"}
+            return {"title": f"{ctx['total_missed']:,} genuine missed calls across customer-facing queues",
+                    "subtitle": f"Customer-facing queues · {ctx['reporting_period']} · session-deduplicated · spam-filtered · internal/back-office excluded"}
+        return {"title": "Where customers are getting missed — by queue",
+                "subtitle": f"Session-deduplicated · spam-filtered · {ctx['reporting_period']} · customer-facing queues only · ranked by calls lost"}
 
 
 def _fallback1(ctx):
     return {
         "title": "How we know these are genuine missed calls — not spam, not noise",
-        "subtitle": f"RingCentral Performance Reports · Tier A+B+C queues · {ctx['reporting_period']} · {ctx['universe_sessions']:,} legitimate inbound sessions analyzed",
+        "subtitle": f"RingCentral Performance Reports · customer-facing queues · {ctx['reporting_period']} · {ctx['universe_sessions']:,} legitimate inbound sessions analyzed",
         "card1": [("The problem:", "Standard reports count one row per agent ring leg — a call routed to many agents shows as many phantom missed calls."),
                   ("Our fix:", f"Every leg was grouped by Session ID — one call, one count. {ctx['phantom_legs_removed']} phantom legs removed."),
                   ("Proof:", f"{ctx['raw_inbound_legs']:,} raw legs → {ctx['inbound_sessions']:,} unique sessions. Counts are callers, not ring events.")],
