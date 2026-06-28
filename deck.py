@@ -895,6 +895,13 @@ def _slide_destinations(prs, r: PipelineResult, ctx, narr):
           size=12, bold=True, color=RC_BLUE, font=FONT)
     _dest_table(s, d, Inches(0.5), Inches(3.74), Inches(12.33))
 
+    # Methodology disclosure — the bucketing is a transparent heuristic.
+    _text(s, "Destinations are read directly from each call's “To” line in the CN Calls report. "
+             "Buckets are inferred from the destination name (shared-line / department keywords vs. "
+             "an individual extension) and may not be exact for every line.",
+          Inches(0.5), Inches(6.52), Inches(12.3), Inches(0.28),
+          size=7.5, italic=True, color=GRAY, align=PP_ALIGN.CENTER)
+
     # Takeaway strip.
     _rect(s, Inches(0.5), Inches(6.78), Inches(0.5), Pt(0.5), CARD_BORDER)
     _text(s, "Queue tuning, more agents and overflow routing can't recover a call that never "
