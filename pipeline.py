@@ -301,7 +301,9 @@ def _read_calls_sheet_streaming(path: Path) -> pd.DataFrame:
         col_idx = {name: header.index(name) for name in _CALLS_NEEDED_COLS
                    if name in header}
         dir_i = col_idx["Call Direction"]
-        keep_names = list(col_idx.keys())
+        # "Call Direction" is only used to filter inbound legs while streaming;
+        # it's never read downstream, so don't store a 188k-row copy of it.
+        keep_names = [n for n in col_idx if n != "Call Direction"]
         keep_pos = [col_idx[n] for n in keep_names]
         ncols = len(header)
 
@@ -318,7 +320,18 @@ def _read_calls_sheet_streaming(path: Path) -> pd.DataFrame:
     finally:
         wb.close()
 
-    df = pd.DataFrame(data, columns=keep_names)
+    # Build the frame column-by-column, freeing each source list as it is
+    # consumed. pd.DataFrame(data) would keep BOTH the Python lists and the
+    # copied frame resident at once — a transient ~2x spike that, on a full
+    # month's export, pushed peak RSS toward Render's 512MB cap (OOM /
+    # SIGSEGV). Popping each list keeps only one copy live at a time.
+    import gc
+    df = pd.DataFrame(index=range(len(data[keep_names[0]])) if keep_names else None)
+    for n in keep_names:
+        df[n] = data[n]
+        data[n] = None
+    del data
+    gc.collect()
     return df
 
 
