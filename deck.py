@@ -208,7 +208,7 @@ def _slide2(prs, r: PipelineResult, ctx, narr, sales_queue_calls):
           size=_big_size, bold=True, color=RC_RED, font=FONT, wrap=False,
           align=PP_ALIGN.CENTER)
     _rich(s, [[(f"{r.miss_rate*100:.1f}%", {"bold": True, "size": 13, "color": DARK}),
-               (f" of {r.universe_sessions:,} queue sessions went unanswered",
+               (f" of {r.universe_sessions:,} inbound sessions went unanswered",
                 {"size": 13, "color": DARK})]],
           lx + Inches(0.25), ly + Inches(2.35), lw - Inches(0.45), Inches(0.7))
     _rect(s, lx + Inches(0.25), ly + Inches(3.05), lw - Inches(0.5), Pt(1), CARD_BORDER)
@@ -222,20 +222,22 @@ def _slide2(prs, r: PipelineResult, ctx, narr, sales_queue_calls):
 
     # Middle: chart + breakdown
     mx = Inches(4.0)
-    _text(s, f"{round(r.business_hours_miss_pct*100)}% of misses during staffed hours (M–F, 7a–6p)",
-          mx, Inches(1.95), Inches(4.6), Inches(0.35), size=12, bold=True, color=DARK, font=FONT)
+    _text(s, f"{round(r.business_hours_miss_pct*100)}% of misses hit during staffed hours — peak overflow, "
+             f"when every agent is already on a call",
+          mx, Inches(1.95), Inches(4.6), Inches(0.5), size=11, bold=True, color=DARK, font=FONT, line_spacing=1.0)
     _hourly_chart(s, r, mx, Inches(2.35), Inches(4.55), Inches(1.85))
 
     _text(s, "How they were missed:", mx, Inches(4.35), Inches(4.6), Inches(0.3),
           size=12, bold=True, color=DARK, font=FONT)
-    # Real abandoned count comes from the Queues report (2nd upload); the Calls
-    # export has no "Abandoned" disposition so r.abandoned is always 0 there.
+    # The two dispositions of a genuine missed call — these sum to total_missed
+    # exactly (rang-out + voicemail). "Abandoned in queue" is a DIFFERENT measure
+    # (from the Queues report), not a third slice, so it's shown separately below
+    # rather than inside this breakdown (which would push the total past 100%).
     qr = r.queues_report
     abandoned_n = qr.abandoned if (qr and qr.abandoned) else r.abandoned
     bd = [
-        (abandoned_n, "Abandoned in queue (left waiting)", RC_RED, RGBColor(0xFC,0xEC,0xEC)),
-        (r.voicemail_total, "Went to voicemail (left msg)", RC_GOLD, RGBColor(0xFB,0xF3,0xE0)),
         (r.missed, "Rang out — no answer", RC_PURPLE, RGBColor(0xF0,0xEC,0xF7)),
+        (r.voicemail_total, "Went to voicemail (left msg)", RC_GOLD, RGBColor(0xFB,0xF3,0xE0)),
     ]
     by = Inches(4.7)
     for val, lbl, col, bg in bd:
@@ -246,8 +248,13 @@ def _slide2(prs, r: PipelineResult, ctx, narr, sales_queue_calls):
                    (lbl, {"size": 11, "color": DARK})]],
               mx + Inches(0.2), by, Inches(4.3), Inches(0.55), anchor=MSO_ANCHOR.MIDDLE)
         by += Inches(0.68)
-    _text(s, f"{r.repeat_callers} callers tried 2+ times and never got through — proof of buying intent, not spam",
-          mx, by + Inches(0.02), Inches(4.6), Inches(0.5), size=10, italic=True, color=RC_RED)
+    if abandoned_n:
+        _text(s, f"Separately, the Queues report shows {abandoned_n:,} callers abandoned in queue "
+                 f"before reaching anyone — a distinct measure, not part of the split above.",
+              mx, by + Inches(0.02), Inches(4.6), Inches(0.55), size=9.5, italic=True, color=RC_RED)
+    else:
+        _text(s, f"{r.repeat_callers} callers tried 2+ times and never got through — intent, not spam.",
+              mx, by + Inches(0.02), Inches(4.6), Inches(0.5), size=10, italic=True, color=RC_RED)
 
     # Right: worst-hit queues table. Prefer the Queues report (real per-queue
     # abandoned); the Calls export collapses all abandoned calls into "Unknown",
@@ -259,6 +266,9 @@ def _slide2(prs, r: PipelineResult, ctx, narr, sales_queue_calls):
         worst = sorted((q for q in qr.queues if (q.tier or "C") != "D"),
                        key=lambda q: q.abandoned, reverse=True)[:10]
         _worst_table_qr(s, worst, rx, Inches(2.35), Inches(3.95))
+        if any(getattr(q, "answered", None) == 0 and q.inbound > 0 for q in worst):
+            _text(s, "† unstaffed queue — 0 agents ever answered; a routing/staffing fix (see slide 5), not a data error.",
+                  rx, Inches(5.95), Inches(4.0), Inches(0.6), size=8, italic=True, color=GRAY)
     else:
         _text(s, "Worst-hit queues", rx, Inches(1.95), Inches(4.0), Inches(0.35),
               size=14, bold=True, color=DARK, font=FONT)
@@ -285,7 +295,12 @@ def _worst_table_qr(s, queues, x, y, w):
         bg = ROW_ALT if i % 2 else WHITE
         # "Rev" column: ✓ marks a revenue-line queue (sales/orders/bookings).
         is_rev = (q.tier or "C") in ("A", "B")
-        vals = [q.name[:26], "✓" if is_rev else "", f"{q.abandoned}", f"{round(q.abandon_rate*100)}%"]
+        # A 100% abandon rate on a queue with zero answered isn't a data error — it's
+        # an UNSTAFFED queue (0 agents). Mark it with † so it reads as the config
+        # finding it is (see slide 5), not a broken number.
+        unstaffed = (getattr(q, "answered", None) == 0 and q.inbound > 0)
+        pct_txt = f"{round(q.abandon_rate*100)}%" + ("†" if unstaffed else "")
+        vals = [q.name[:26], "✓" if is_rev else "", f"{q.abandoned}", pct_txt]
         for j, v in enumerate(vals):
             c = tbl.cell(i, j)
             c.fill.solid(); c.fill.fore_color.rgb = bg
@@ -468,8 +483,8 @@ def _slide3(prs, r: PipelineResult, ctx, narr):
     _text(s, f"{r.answered_under_60:,}", lx + Inches(0.2), by + Inches(0.78), lw - Inches(0.3), Inches(1.0),
           size=58, bold=True, color=RC_ORANGE, font=FONT)
     _rich(s, [[(f"{r.under_60_pct*100:.0f}%", {"bold": True, "size": 12, "color": DARK}),
-               (" of answered calls — short, routine calls AIR can handle", {"size": 12, "color": GRAY})]],
-          lx + Inches(0.25), by + Inches(1.78), lw - Inches(0.5), Inches(0.4))
+               (" of answered calls ran under 60s — an indicator of routine volume an AI receptionist could handle", {"size": 11, "color": GRAY})]],
+          lx + Inches(0.25), by + Inches(1.72), lw - Inches(0.5), Inches(0.5))
 
     # Right — most-abandoned queues table (from the Queues report when present)
     rx = Inches(5.0)
@@ -480,6 +495,9 @@ def _slide3(prs, r: PipelineResult, ctx, narr):
         top_ab = sorted((q for q in qr.queues if q.abandoned > 0 and q.tier != "D"),
                         key=lambda q: q.abandoned, reverse=True)[:11]
         _abandon_table_qr(s, top_ab, rx, Inches(2.4), Inches(7.85))
+        if any(getattr(q, "answered", None) == 0 and q.inbound > 0 for q in top_ab):
+            _text(s, "† unstaffed queue — 0 agents ever answered (a routing/staffing fix, see slide 5), not a data error.",
+                  rx, Inches(6.05), Inches(7.85), Inches(0.3), size=8, italic=True, color=GRAY)
         # Wait-time / SLA context strip
         bits = []
         if qr.avg_wait:
@@ -503,8 +521,8 @@ def _slide3(prs, r: PipelineResult, ctx, narr):
 
     # Takeaway strip
     _rect(s, Inches(0.5), Inches(6.85), Inches(12.33), Pt(0.5), CARD_BORDER)
-    _text(s, "AI Receptionist answers instantly — recovering abandoned callers and "
-             "deflecting short, routine calls so staff focus on revenue conversations.",
+    _text(s, "AI Receptionist answers instantly — recovering abandoned callers and taking many "
+             "short, routine calls so staff focus on revenue conversations.",
           Inches(0.5), Inches(6.92), Inches(12.3), Inches(0.4),
           size=11, italic=True, color=RC_BLUE, align=PP_ALIGN.CENTER)
     _footer(s, 4)
@@ -569,8 +587,10 @@ def _abandon_table_qr(s, queues, x, y, w):
     for i, q in enumerate(queues, 1):
         bg = ROW_ALT if i % 2 else WHITE
         is_rev = (q.tier or "C") in ("A", "B")
+        unstaffed = (getattr(q, "answered", None) == 0 and q.inbound > 0)
+        pct_txt = f"{round(q.abandon_rate*100)}%" + ("†" if unstaffed else "")
         vals = [q.name[:38], "✓" if is_rev else "", f"{q.inbound:,}",
-                f"{q.abandoned:,}", f"{round(q.abandon_rate*100)}%"]
+                f"{q.abandoned:,}", pct_txt]
         for j, v in enumerate(vals):
             c = tbl.cell(i, j)
             c.fill.solid(); c.fill.fore_color.rgb = bg
@@ -633,10 +653,10 @@ def _slide_config_vs_air(prs, r: PipelineResult, ctx, narr):
     s = prs.slides.add_slide(prs.slide_layouts[6])
     _bg(s)
     _logo(s)
-    _title_block(s, narr.get("title", "What queue config can fix — and what only AIR can"),
+    _title_block(s, narr.get("title", "What queue config can fix — and what needs always-on coverage"),
                  narr.get("subtitle",
                           "Separating calls recoverable by routing/staffing from the structural "
-                          "gap that needs always-on coverage"))
+                          "gap that no configuration can answer"))
 
     total = r.total_missed
     unstaffed = _unstaffed_queues(r)
@@ -656,7 +676,7 @@ def _slide_config_vs_air(prs, r: PipelineResult, ctx, narr):
          f"{len(unstaffed)} unstaffed queue{'s' if len(unstaffed)!=1 else ''} · 0 agents ever answered",
          "Routing/staffing fix — no new licenses required."),
         (Inches(9.06), Inches(3.77), RGBColor(0xFC,0xEC,0xEC), RC_RED, RC_RED, GRAY,
-         "STRUCTURAL GAP — ONLY AIR CLOSES", f"{structural:,}",
+         "STRUCTURAL GAP — NEEDS ALWAYS-ON COVERAGE", f"{structural:,}",
          "Calls arriving when staff are busy, after hours, or at peak",
          "No routing rule answers a call when no human is free."),
     ]
@@ -783,7 +803,9 @@ def _slide_call_reasons(prs, r: PipelineResult, ctx, narr):
               size=9, bold=True, color=col, align=PP_ALIGN.CENTER, font=FONT)
         _text(s, str(item.get("why", ""))[:120], cx + Inches(0.32), cy + Inches(0.8),
               cw - Inches(0.55), Inches(0.7), size=11, color=GRAY, line_spacing=1.05)
-        if item.get("revenue_relevant"):
+        # Only badge revenue-relevant on genuine revenue-line cards (tier A/B), so the
+        # marker stays meaningful instead of appearing on General/Internal reasons too.
+        if item.get("revenue_relevant") and tier in ("A", "B"):
             _text(s, "● revenue-relevant", cx + Inches(0.32), cy + chh - Inches(0.32),
                   cw - Inches(0.55), Inches(0.28), size=9, bold=True, color=RC_ORANGE)
 
@@ -807,15 +829,29 @@ CALLS_PER_FTE_LEAN = 23_000        # realistic everyday throughput -> more FTEs
 COST_PER_FTE = 50_000              # fully-loaded annual cost per agent
 # Revenue assumptions
 AVG_ORDER_VALUE = 500              # $ per recovered order (editable assumption)
-CAPTURE_RATES = [0.02, 0.05, 0.10]
+# Deliberately conservative capture rates — the share of revenue-line missed calls
+# an AI receptionist converts into a booked order. Kept low so the model is a floor,
+# not a hero number a CFO dismisses.
+CAPTURE_RATES = [0.02, 0.03, 0.05]
+CONSERVATIVE_CAPTURE = 0.02        # the cell we lead with / highlight
 
 
-def _roi_model(r: PipelineResult, air_rate: float = AIR_RATE_PER_MIN) -> dict:
+def _roi_model(r: PipelineResult, air_rate: float = AIR_RATE_PER_MIN,
+               rev_missed_month: float | None = None) -> dict:
     days = r.days_in_period or 30
     per_day_missed = r.total_missed / days
     missed_per_year = per_day_missed * 365
     missed_per_month = per_day_missed * 30.4
     inbound_per_month = (r.universe_sessions / days) * 30.4
+
+    # Conservative opportunity pool: ONLY revenue-line missed calls (sales/orders/
+    # bookings) — never the full missed-call count. If we weren't handed a pool,
+    # fall back to the observed revenue-line monthly figure, else the total.
+    if rev_missed_month and rev_missed_month > 0:
+        rev_missed_per_month = float(rev_missed_month)
+    else:
+        rev_missed_per_month = missed_per_month
+    rev_missed_per_year = rev_missed_per_month * 12
 
     # AIR fields every inbound call; minutes = calls x avg talk minutes
     air_minutes_month = inbound_per_month * r.avg_answered_minutes
@@ -834,6 +870,8 @@ def _roi_model(r: PipelineResult, air_rate: float = AIR_RATE_PER_MIN) -> dict:
     return {
         "missed_per_year": missed_per_year,
         "missed_per_month": missed_per_month,
+        "rev_missed_per_year": rev_missed_per_year,
+        "rev_missed_per_month": rev_missed_per_month,
         "inbound_per_month": inbound_per_month,
         "air_minutes_month": air_minutes_month,
         "air_cost_month": air_cost_month,
@@ -873,16 +911,20 @@ def _slide_revenue(prs, r: PipelineResult, ctx, narr):
     _logo(s)
     m = ctx["roi"]
     aov = ctx.get("aov", AVG_ORDER_VALUE)
-    cap_hi = ctx.get("capture_override") or 0.05
-    _title_block(s, narr.get("title", "The ROI: missed calls become recovered orders"),
-                 narr.get("subtitle", f"{round(m['missed_per_year']):,} revenue-relevant missed calls/year (spam already removed) · ${aov:,} avg order value"))
+    cap_hi = ctx.get("capture_override") or CONSERVATIVE_CAPTURE
+    rev_year = m["rev_missed_per_year"]
+    rev_month = m["rev_missed_per_month"]
+    _title_block(s, narr.get("title", "Sizing the revenue opportunity — conservatively"),
+                 narr.get("subtitle",
+                          f"Revenue-line missed calls only (sales · orders · bookings) · "
+                          f"{ctx.get('reporting_period','')} run-rate · illustrative, using your own order value"))
 
-    # Funnel strip
+    # Funnel strip — pool is the REVENUE-LINE missed calls, never total volume.
     fy = Inches(1.95)
     steps = [
-        (f"{round(m['missed_per_year']):,}", "missed calls / year", RC_RED),
-        (f"{round(m['missed_per_month']):,}", "missed calls / month", RC_GOLD),
-        ("× capture %", "convert to orders", RC_BLUE),
+        (f"{round(rev_month):,}", "revenue-line missed / month", RC_RED),
+        (f"{round(rev_year):,}", "revenue-line missed / year", RC_GOLD),
+        ("× capture %", "booked as orders", RC_BLUE),
         ("= recovered $", "added revenue", RC_ORANGE),
     ]
     sw = Inches(3.0); sx = Inches(0.5)
@@ -894,20 +936,24 @@ def _slide_revenue(prs, r: PipelineResult, ctx, narr):
               size=11, color=GRAY)
         sx = Emu(int(sx) + int(sw) + int(Inches(0.11)))
 
-    # Recovered-revenue table by capture rate
-    _text(s, "Annual recovered revenue by capture rate", Inches(0.5), Inches(3.25),
-          Inches(12.3), Inches(0.35), size=14, bold=True, color=DARK, font=FONT)
+    # Recovered-revenue table by capture rate (revenue-line pool only)
+    _text(s, "Annual recovered revenue — revenue-line missed calls only, by capture rate",
+          Inches(0.5), Inches(3.25), Inches(12.3), Inches(0.35), size=14, bold=True, color=DARK, font=FONT)
     _revenue_table(s, m, aov, cap_hi, Inches(0.5), Inches(3.7), Inches(12.33))
 
-    # Headline takeaway (capture rate)
-    rec5 = cap_hi * m["missed_per_year"] * aov
-    _rect(s, Inches(0.5), Inches(6.25), Inches(12.33), Inches(0.7), RC_BLUE, radius=True)
+    # Headline takeaway — lead with the CONSERVATIVE cell, framed as a floor.
+    rec_lo = cap_hi * rev_year * aov
+    _rect(s, Inches(0.5), Inches(6.05), Inches(12.33), Inches(0.62), RC_BLUE, radius=True)
     _rich(s, [[
-        (f"{_money(rec5)} recovered/year ", {"bold": True, "size": 17, "color": WHITE, "font": FONT}),
-        (f"at {round(cap_hi*100)}% capture and ${aov:,}/order — against ", {"size": 14, "color": RGBColor(0xCD,0xD9,0xEA)}),
-        (f"{_money(m['air_cost_year'])} ", {"bold": True, "size": 17, "color": RC_ORANGE, "font": FONT}),
-        ("of AIR investment.", {"size": 14, "color": RGBColor(0xCD,0xD9,0xEA)}),
-    ]], Inches(0.7), Inches(6.4), Inches(12.0), Inches(0.45), anchor=MSO_ANCHOR.MIDDLE, align=PP_ALIGN.CENTER)
+        (f"Even at a conservative {round(cap_hi*100)}% capture and a ${aov:,} order, that's ", {"size": 13, "color": RGBColor(0xCD,0xD9,0xEA)}),
+        (f"{_money(rec_lo)}/year recovered ", {"bold": True, "size": 16, "color": WHITE, "font": FONT}),
+        ("— set your own order value to size it precisely.", {"size": 13, "color": RGBColor(0xCD,0xD9,0xEA)}),
+    ]], Inches(0.7), Inches(6.16), Inches(12.0), Inches(0.4), anchor=MSO_ANCHOR.MIDDLE, align=PP_ALIGN.CENTER)
+    # Explicit caveat line so no exec can say it was hidden.
+    _text(s, f"Illustrative. Counts only missed calls to revenue-line queues — not total call volume. "
+             f"{ctx.get('reporting_period','')} run-rate ×12; assumes your average order value. Validate against your CRM.",
+          Inches(0.5), Inches(6.75), Inches(12.33), Inches(0.4),
+          size=9, italic=True, color=GRAY, align=PP_ALIGN.CENTER)
     _footer(s, 8)
 
 
@@ -937,7 +983,7 @@ def _revenue_table(s, m, aov, cap_hi, x, y, w):
         c0.fill.solid(); c0.fill.fore_color.rgb = ROW_ALT if i % 2 else WHITE
         _cell(c0, f"{round(cap*100)}% of missed calls", DARK, bold=True, size=12)
         for j, col_aov in enumerate(aovs, 1):
-            rec = cap * m["missed_per_year"] * col_aov
+            rec = cap * m["rev_missed_per_year"] * col_aov
             c = tbl.cell(i, j)
             highlight = (abs(cap - cap_hi) < 1e-9 and col_aov == aov)
             c.fill.solid()
@@ -980,9 +1026,10 @@ def _slide_next(prs, r: PipelineResult, ctx, narr):
               size=12, color=GRAY, line_spacing=1.05)
         y = Emu(int(y) + int(rh) + int(gap))
 
-    cap_hi = ctx.get("capture_override") or 0.05
-    rec5 = cap_hi * m["missed_per_year"] * ctx.get("aov", AVG_ORDER_VALUE)
-    _text(s, f"The opportunity: ~{_money(rec5)}/year in recovered revenue for ~{_money(m['air_cost_year'])} in AIR investment.",
+    cap_hi = ctx.get("capture_override") or CONSERVATIVE_CAPTURE
+    rec_lo = cap_hi * m["rev_missed_per_year"] * ctx.get("aov", AVG_ORDER_VALUE)
+    _text(s, f"Even at a conservative {round(cap_hi*100)}% capture on revenue-line missed calls, "
+             f"that's ~{_money(rec_lo)}/year in recovered revenue — validated against your own order value.",
           Inches(0.5), Inches(6.5), Inches(12.33), Inches(0.4),
           size=13, bold=True, italic=True, color=WHITE, align=PP_ALIGN.CENTER, font=FONT)
     _footer(s, 10, warm=True)
@@ -1047,8 +1094,19 @@ def build_deck(result: PipelineResult, run_id: str, customer: str, ae_name: str,
 
     # Revenue-line = queues with clear buy/order/booking or customer-service intent
     # (the old A + B tiers). These are the missed calls that most directly cost money.
-    sales_queue_calls = sum(q.total_missed for q in result.queue_stats.values()
-                            if (q.tier or "C") in ("A", "B"))
+    #
+    # Tier labels live on the Queues report (the authoritative per-queue feed), NOT
+    # on queue_stats (built from the Calls export, whose Queue column is mostly
+    # blank — so tiering it yields ~0). Source the revenue-line pool from the
+    # Queues report: missed = inbound − answered for A/B queues. Fall back to
+    # queue_stats only when no Queues report is present.
+    _qr0 = result.queues_report
+    if _qr0 and _qr0.queues:
+        sales_queue_calls = sum(max((q.inbound or 0) - (q.answered or 0), 0)
+                                for q in _qr0.queues if (q.tier or "C") in ("A", "B"))
+    else:
+        sales_queue_calls = sum(q.total_missed for q in result.queue_stats.values()
+                                if (q.tier or "C") in ("A", "B"))
     top_queues = sorted(result.queue_stats.values(), key=lambda q: q.total_missed, reverse=True)[:5]
 
     ctx = {
@@ -1137,7 +1195,11 @@ def build_deck(result: PipelineResult, run_id: str, customer: str, ae_name: str,
     cap = _num(overrides.get("capture_rate"))
     ctx["capture_override"] = cap if cap and 0 < cap < 1 else None
 
-    ctx["roi"] = _roi_model(result, ctx["air_rate"])
+    # Scale the observed revenue-line missed pool to a 30.4-day month so it lines
+    # up with the model's monthly basis (the report period may not be exactly 30 days).
+    _rev_missed_month = sales_queue_calls * (30.4 / (result.days_in_period or 30))
+    ctx["roi"] = _roi_model(result, ctx["air_rate"], rev_missed_month=_rev_missed_month)
+    ctx["sales_queue_missed"] = sales_queue_calls
 
     # Narrative titles/subtitles for the slides we keep. The deck was deliberately
     # simplified to a tight, defensible sequence (see the build order below):
