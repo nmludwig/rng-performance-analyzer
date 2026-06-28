@@ -31,7 +31,7 @@
     <label for="report">1. Calls export — Excel (.xlsx)</label>
     <p style="font-size:0.82rem;color:#888;margin:0.1rem 0 0.4rem;">
       Performance Reports → <strong>Calls</strong> tab → Download → Excel. Drives dedup,
-      missed-call timing, and queue tiering.
+      missed-call timing, and queue classification.
     </p>
     <p style="font-size:0.8rem;color:#9a5a00;background:#fff8f0;border:1px solid #ffe0c2;
        border-radius:6px;padding:0.5rem 0.7rem;margin:0.1rem 0 0.5rem;line-height:1.5;">
@@ -53,8 +53,9 @@
     <label for="reporting_period">Reporting period <span style="font-weight:400;color:#999;">(optional)</span></label>
     <input type="text" id="reporting_period" name="reporting_period" placeholder="auto-detected from data">
     <p style="font-size:0.82rem;color:#888;margin:0.1rem 0 1.25rem;">
-      Leave blank to auto-detect it from the call dates. Queue tiers are classified automatically;
-      back-office queues are excluded from the analysis.
+      Leave blank to auto-detect it from the call dates. Queues are classified automatically into
+      customer-facing vs. internal — internal / back-office queues (no customer on the line) are
+      excluded from the missed-call count.
     </p>
 
     <button type="submit" id="generate-btn" class="btn btn-primary">Generate deck →</button>
