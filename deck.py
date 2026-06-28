@@ -1626,12 +1626,15 @@ def build_deck(result: PipelineResult, run_id: str, customer: str, ae_name: str,
     #   2. Missed calls by queue/company — the headline number + breakdown
     #   3. Hourly trend + after-hours / weekend / midday miss rates
     #   4. Answerable-call signals: abandons, answered <60s, wait/SLA
-    #   5. Illustrative opportunity (single, clearly-caveated money slide)
-    #   6. Recommendation & next steps
+    #   5. What queue config can fix vs. the structural gap only AIR closes —
+    #      the answer to the "just help us configure our queues" objection
+    #   6. Illustrative opportunity (single, clearly-caveated money slide)
+    #   7. Recommendation & next steps
     _slide_call_reasons(prs, result, ctx, {})   # opener — robust to missing business context
     _slide2(prs, result, ctx, narr2, sales_queue_calls)
     _slide_hourly(prs, result, ctx, narr_hourly)
     _slide3(prs, result, ctx, narr3)
+    _slide_config_vs_air(prs, result, ctx, {})
     _slide_revenue(prs, result, ctx, {})
     _slide_next(prs, result, ctx, {})
 
