@@ -1077,20 +1077,27 @@ def _slide_call_reasons(prs, r: PipelineResult, ctx, narr):
                           f"{r.total_missed:,} missed calls in {r.reporting_period} · "
                           f"these are the callers a business like this hears from every day"))
 
-    # Business profile band
-    by = Inches(1.85)
-    _rect(s, Inches(0.5), by, Inches(12.33), Inches(1.0), LIGHT, line=CARD_BORDER, radius=True)
+    # Business profile band — stack the three pieces vertically (industry,
+    # lines of business, one-line summary), each capped to a single non-wrapping
+    # row. The old side-by-side layout collided when the summary wrapped over the
+    # lines-of-business list.
+    by = Inches(1.8)
+    _rect(s, Inches(0.5), by, Inches(12.33), Inches(1.05), LIGHT, line=CARD_BORDER, radius=True)
     industry = (biz.get("industry") or "").strip()
     lobs = biz.get("lines_of_business") or []
     head = industry if industry else "Business profile"
-    _text(s, head, Inches(0.8), by + Inches(0.16), Inches(4.0), Inches(0.35),
-          size=14, bold=True, color=RC_BLUE, font=FONT)
+    _text(s, head, Inches(0.8), by + Inches(0.12), Inches(11.6), Inches(0.32),
+          size=13, bold=True, color=RC_BLUE, font=FONT, wrap=False)
     if lobs:
-        _text(s, " · ".join(str(x) for x in lobs[:6]), Inches(0.8), by + Inches(0.56), Inches(11.4), Inches(0.35),
-              size=11, color=GRAY)
+        lob_line = " · ".join(str(x) for x in lobs[:6])
+        if len(lob_line) > 140:
+            lob_line = lob_line[:138].rstrip(" ·") + "…"
+        _text(s, lob_line, Inches(0.8), by + Inches(0.46), Inches(11.7), Inches(0.3),
+              size=9.5, color=GRAY, font=FONT, wrap=False)
     if summary:
-        _text(s, summary, Inches(4.9), by + Inches(0.16), Inches(7.7), Inches(0.36),
-              size=11, italic=True, color=DARK, line_spacing=1.0)
+        s_line = summary if len(summary) <= 150 else summary[:148].rstrip() + "…"
+        _text(s, s_line, Inches(0.8), by + Inches(0.74), Inches(11.7), Inches(0.28),
+              size=9.5, italic=True, color=DARK, font=FONT, wrap=False)
 
     # Predicted call-reason cards (up to 6)
     reasons = (biz.get("predicted_call_reasons") or [])[:6]

@@ -22,10 +22,11 @@
 <div class="card" style="background:linear-gradient(180deg,#fbfcfe 0%,#fff 100%);">
   <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.4rem;">
     <h2 style="margin-bottom:0;">Here's exactly what you'll get</h2>
-    <span style="color:#999;font-size:0.82rem;">Real example · 12-slide .pptx</span>
+    <span style="color:#999;font-size:0.82rem;">Real example · 6-slide .pptx</span>
   </div>
   <p style="color:#777;font-size:0.9rem;margin-bottom:1.5rem;">
-    A finished, RingCentral-branded PowerPoint — built automatically from your upload. Sample below:
+    A finished, RingCentral-branded PowerPoint — built automatically from your two reports. Six tight,
+    defensible slides, every number drawn straight from your data. Sample below:
   </p>
 
   <!-- Hero slide: the hour-by-hour miss-rate headline -->
@@ -37,20 +38,14 @@
          style="width:100%;display:block;">
   </a>
 
-  <!-- The other eleven slides -->
+  <!-- The other five slides -->
   <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;">
     {% set example_slides = [
-      (1, 'Methodology & data integrity'),
-      (2, 'Missed-call headline'),
-      (4, 'Where AI Receptionist captures revenue today'),
-      (5, 'Queue-level missed-call detail'),
-      (6, 'What queue config can fix — and what only AIR can'),
-      (7, 'What your callers are likely calling about'),
-      (8, 'How AI Receptionist answers every call'),
-      (9, 'Far cheaper than hiring'),
-      (10, 'Missed calls become recovered orders'),
-      (11, 'Rollout investment'),
-      (12, 'Recommendation & next steps')
+      (1, 'Who they are & who is calling them'),
+      (2, 'Missed calls by queue — the headline'),
+      (4, 'Abandoned & sub-60-second calls AIR can catch'),
+      (5, 'The revenue opportunity'),
+      (6, 'Recommendation & next steps')
     ] %}
     {% for num, caption in example_slides %}
     <a href="{{ url_for('static', filename='examples/slide-' ~ num ~ '.png') }}" target="_blank"
