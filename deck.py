@@ -1519,11 +1519,6 @@ def build_deck(result: PipelineResult, run_id: str, customer: str, ae_name: str,
     # dominates, the story is "your misses never reach a queue at all" — the single
     # strongest AIR argument: routing/SLA/overflow staffing cannot catch a call that
     # never enters a queue; only an always-on AI receptionist answers every line.
-    _unq = result.queue_stats.get("Unknown")
-    if _unq is not None and result.total_missed:
-        ctx["unqueued_missed"] = _unq.total_missed
-        ctx["unqueued_share_pct"] = round(100 * _unq.total_missed / result.total_missed)
-
     # Real abandoned-in-queue data from the Queues report (2nd upload)
     qr = result.queues_report
     if qr and qr.inbound:
@@ -1532,6 +1527,32 @@ def build_deck(result: PipelineResult, run_id: str, customer: str, ae_name: str,
         ctx["queue_abandon_rate_pct"] = round(qr.abandon_rate * 100, 1)
         ctx["queue_longest_wait"] = qr.longest_wait
         ctx["queue_sla_pct"] = round(qr.sla_pct * 100)
+
+    # How many misses actually entered a managed call queue vs. never reached one.
+    #
+    # We can't trust the Calls export's "Queue" column for this — it's blank on the
+    # vast majority of rows, so the "Unknown" bucket balloons and falsely implies
+    # ~100% of misses are unqueued. The Queues report is the authoritative source
+    # for queue activity, so reconcile against it: queue misses = inbound − answered
+    # for customer-facing queues (tier != 'D'; back-office queues carry no customer
+    # and are out of scope). Everything else in total_missed never reached a queue.
+    if result.total_missed:
+        queue_missed = None
+        if qr and qr.queues:
+            tiered = [q for q in qr.queues if (getattr(q, "tier", "") or "").upper() != "D"]
+            if tiered:
+                queue_missed = sum(max((q.inbound or 0) - (q.answered or 0), 0) for q in tiered)
+        if queue_missed is None and qr and qr.inbound:
+            queue_missed = max(qr.inbound - qr.answered, 0)
+        if queue_missed is None:
+            # No Queues report at all — fall back to the (unreliable) Unknown bucket.
+            _unq = result.queue_stats.get("Unknown")
+            unqueued_missed = _unq.total_missed if _unq is not None else result.total_missed
+        else:
+            unqueued_missed = max(result.total_missed - queue_missed, 0)
+            ctx["queue_missed"] = queue_missed
+        ctx["unqueued_missed"] = unqueued_missed
+        ctx["unqueued_share_pct"] = round(100 * unqueued_missed / result.total_missed)
 
     # Business context + modeling overrides
     business = business_context if (business_context and business_context.get("available")) else None
