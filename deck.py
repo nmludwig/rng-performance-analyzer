@@ -191,7 +191,7 @@ def _slide1(prs, r: PipelineResult, ctx, narr):
         ("1", RC_BLUE, "Session ID deduplication", narr.get("card1", [])),
         ("2", RC_TEAL, "SPAM / solicitation filter", narr.get("card2", [])),
         ("3", RC_RED, "Business-hours concentration", narr.get("card3", [])),
-        ("4", RC_GOLD, "Repeat caller evidence", narr.get("card4", [])),
+        ("4", RC_GOLD, narr.get("card4_heading", "Repeat caller evidence"), narr.get("card4", [])),
     ]
     card_w, card_h = Inches(6.05), Inches(1.95)
     xs = [Inches(0.5), Inches(6.78)]
@@ -1396,6 +1396,16 @@ def build_deck(result: PipelineResult, run_id: str, customer: str, ae_name: str,
         "top_missed_queues": {q.name: q.total_missed for q in top_queues},
     }
 
+    # Non-queue traffic: calls that never entered a managed ACD call queue land in
+    # the "Unknown" bucket (direct extension dials, ring/hunt groups, IVR). When this
+    # dominates, the story is "your misses never reach a queue at all" — the single
+    # strongest AIR argument: routing/SLA/overflow staffing cannot catch a call that
+    # never enters a queue; only an always-on AI receptionist answers every line.
+    _unq = result.queue_stats.get("Unknown")
+    if _unq is not None and result.total_missed:
+        ctx["unqueued_missed"] = _unq.total_missed
+        ctx["unqueued_share_pct"] = round(100 * _unq.total_missed / result.total_missed)
+
     # Real abandoned-in-queue data from the Queues report (2nd upload)
     qr = result.queues_report
     if qr and qr.inbound:
@@ -1432,8 +1442,25 @@ def build_deck(result: PipelineResult, run_id: str, customer: str, ae_name: str,
     # Always state the scoping rule on the methodology slide, regardless of what
     # the narrative model returns — this is where "why we filter queues" lives.
     narr1["subtitle"] = (f"RingCentral Performance Reports · {result.reporting_period} · "
-                         f"{result.universe_sessions:,} customer-facing sessions analyzed · "
+                         f"{result.universe_sessions:,} inbound calls across ALL customer-facing lines "
+                         f"— call queues, ring groups & direct extensions · "
                          f"internal / back-office queues excluded (no customer on the line)")
+    # When most misses never entered a managed queue (direct dials, ring/hunt groups,
+    # IVR), make that the headline finding on card 4 and frame it as the AIR case —
+    # routing/SLA/overflow can't catch a call that never reaches a queue. This is both
+    # the most honest reading of the data and the strongest argument for AIR.
+    _unq_share = ctx.get("unqueued_share_pct", 0)
+    if _unq_share >= 40:
+        narr1["card4_heading"] = "Where the missed calls actually land"
+        narr1["card4"] = [
+            ("The pattern:", "We mapped every miss to where it landed — a managed call "
+                             "queue, or a direct line / ring group / IVR with no queue behind it."),
+            ("What we found:", f"{_unq_share}% of missed calls ({ctx.get('unqueued_missed', 0):,}) "
+                               "never entered a managed call queue at all."),
+            ("What it means:", "Routing rules, SLAs and overflow staffing can't recover a call that "
+                               "never reaches a queue. Only an always-on AI receptionist answers "
+                               "every inbound line — queues, ring groups and direct extensions alike."),
+        ]
     narr2 = _narr_titles(ctx, prior_instructions, "slide2")
     narr_hourly = {"title": "Calls slip away after hours, on weekends — and even midday",
                    "subtitle": f"Inbound miss rate by hour of day · {result.reporting_period} · when the business closes or gets busy, calls go unanswered"}
