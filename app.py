@@ -205,6 +205,20 @@ def upload(run_id):
     session["queues_filename"] = queues_file.filename
     session["reporting_period"] = request.form.get("reporting_period", "").strip()
 
+    # Average order value: the one ROI input not measured from the call logs. When
+    # the AE enters it, store it as a supplied override so the deck treats it as the
+    # customer's own figure (not an AI estimate). Blank → fall back to crawl estimate.
+    aov_raw = (request.form.get("avg_order_value") or "").strip().replace(",", "")
+    if aov_raw:
+        try:
+            aov_val = int(float(aov_raw))
+            if aov_val > 0:
+                overrides = session.get("overrides", {}) or {}
+                overrides["avg_order_value"] = aov_val
+                session["overrides"] = overrides
+        except ValueError:
+            pass
+
     return redirect(url_for("generate", run_id=run_id))
 
 

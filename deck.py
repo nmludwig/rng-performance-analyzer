@@ -942,18 +942,40 @@ def _slide_revenue(prs, r: PipelineResult, ctx, narr):
     _revenue_table(s, m, aov, cap_hi, Inches(0.5), Inches(3.7), Inches(12.33))
 
     # Headline takeaway — lead with the CONSERVATIVE cell, framed as a floor.
+    # Wording flexes with where the order value came from, so we never assert an
+    # AI-guessed number as if it were the customer's own figure.
+    src = ctx.get("aov_source", "default")
     rec_lo = cap_hi * rev_year * aov
-    _rect(s, Inches(0.5), Inches(6.05), Inches(12.33), Inches(0.62), RC_BLUE, radius=True)
-    _rich(s, [[
-        (f"Even at a conservative {round(cap_hi*100)}% capture and a ${aov:,} order, that's ", {"size": 13, "color": RGBColor(0xCD,0xD9,0xEA)}),
-        (f"{_money(rec_lo)}/year recovered ", {"bold": True, "size": 16, "color": WHITE, "font": FONT}),
-        ("— set your own order value to size it precisely.", {"size": 13, "color": RGBColor(0xCD,0xD9,0xEA)}),
-    ]], Inches(0.7), Inches(6.16), Inches(12.0), Inches(0.4), anchor=MSO_ANCHOR.MIDDLE, align=PP_ALIGN.CENTER)
-    # Explicit caveat line so no exec can say it was hidden.
-    _text(s, f"Illustrative. Counts only missed calls to revenue-line queues — not total call volume. "
-             f"{ctx.get('reporting_period','')} run-rate ×12; assumes your average order value. Validate against your CRM.",
-          Inches(0.5), Inches(6.75), Inches(12.33), Inches(0.4),
-          size=9, italic=True, color=GRAY, align=PP_ALIGN.CENTER)
+    _lt = RGBColor(0xCD, 0xD9, 0xEA)
+    _rect(s, Inches(0.5), Inches(6.0), Inches(12.33), Inches(0.6), RC_BLUE, radius=True)
+    if src == "supplied":
+        head_segs = [
+            (f"Even at a conservative {round(cap_hi*100)}% capture and your ${aov:,} order value, that's ", {"size": 13, "color": _lt}),
+            (f"{_money(rec_lo)}/year recovered.", {"bold": True, "size": 16, "color": WHITE, "font": FONT}),
+        ]
+    else:
+        head_segs = [
+            (f"At {round(cap_hi*100)}% capture and a ${aov:,} order value, that's ", {"size": 13, "color": _lt}),
+            (f"~{_money(rec_lo)}/year", {"bold": True, "size": 16, "color": WHITE, "font": FONT}),
+            (" — enter your actual order value to size it precisely.", {"size": 13, "color": _lt}),
+        ]
+    _rich(s, [head_segs], Inches(0.7), Inches(6.1), Inches(12.0), Inches(0.4),
+          anchor=MSO_ANCHOR.MIDDLE, align=PP_ALIGN.CENTER)
+
+    # "Measured vs. assumed" provenance band — the single most defensible element
+    # on the deck's one modeled slide: it states plainly what is the customer's own
+    # data versus the two inputs we assume (and exactly where the order value came from).
+    prov = {"supplied": "your figure",
+            "estimate": "website estimate — confirm with your team",
+            "default": "placeholder — set your real value"}.get(src, "placeholder")
+    by = Inches(6.72)
+    _rich(s, [[("Measured from your own RingCentral logs: ", {"bold": True, "size": 9.5, "color": RC_TEAL, "font": FONT}),
+               ("missed calls, abandons, hours and which queues — nothing modeled.", {"size": 9.5, "color": DARK})]],
+          Inches(0.5), by, Inches(12.33), Inches(0.24), align=PP_ALIGN.CENTER)
+    _rich(s, [[("Two assumptions only: ", {"bold": True, "size": 9.5, "color": RC_ORANGE, "font": FONT}),
+               (f"capture rate (shown as a range above) and average order value (${aov:,} — {prov}). "
+                "Validate against your CRM.", {"size": 9.5, "color": DARK})]],
+          Inches(0.5), by + Inches(0.24), Inches(12.33), Inches(0.24), align=PP_ALIGN.CENTER)
     _footer(s, 8)
 
 
@@ -977,7 +999,9 @@ def _revenue_table(s, m, aov, cap_hi, x, y, w):
     for j, col_aov in enumerate(aovs, 1):
         c = tbl.cell(0, j)
         c.fill.solid(); c.fill.fore_color.rgb = RC_NAVY
-        _cell(c, f"${col_aov:,}/order", WHITE, bold=True, size=11, align=PP_ALIGN.CENTER)
+        # Flag the column that uses the customer's own order value.
+        htxt = f"${col_aov:,}/order" + ("  (your value)" if col_aov == aov else "")
+        _cell(c, htxt, WHITE, bold=True, size=11, align=PP_ALIGN.CENTER)
     for i, cap in enumerate(CAPTURE_RATES, 1):
         c0 = tbl.cell(i, 0)
         c0.fill.solid(); c0.fill.fore_color.rgb = ROW_ALT if i % 2 else WHITE
@@ -1184,10 +1208,19 @@ def build_deck(result: PipelineResult, run_id: str, customer: str, ae_name: str,
         except (TypeError, ValueError):
             return None
 
-    aov = _num(overrides.get("avg_order_value"))
-    if aov is None and business:
-        aov = _num(business.get("suggested_avg_order_value"))
-    ctx["aov"] = int(aov) if aov and aov > 0 else AVG_ORDER_VALUE
+    # Order value is the ONE figure on the ROI slide not measured from the call
+    # logs, so its provenance is tracked and stamped on the slide. Precedence:
+    #   1. supplied  — the AE/customer entered it (their number → defensible)
+    #   2. estimate  — inferred by the website crawl (a starting point to confirm)
+    #   3. default   — no signal at all (a placeholder, clearly flagged)
+    aov_override = _num(overrides.get("avg_order_value"))
+    aov_suggest = _num(business.get("suggested_avg_order_value")) if business else None
+    if aov_override and aov_override > 0:
+        ctx["aov"], ctx["aov_source"] = int(aov_override), "supplied"
+    elif aov_suggest and aov_suggest > 0:
+        ctx["aov"], ctx["aov_source"] = int(aov_suggest), "estimate"
+    else:
+        ctx["aov"], ctx["aov_source"] = AVG_ORDER_VALUE, "default"
 
     air_rate = _num(overrides.get("air_rate_per_min"))
     ctx["air_rate"] = air_rate if air_rate and air_rate > 0 else AIR_RATE_PER_MIN

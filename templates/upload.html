@@ -73,6 +73,23 @@
       excluded from the missed-call count.
     </p>
 
+    <label for="avg_order_value">Average order value <span style="font-weight:400;color:#999;">(recommended)</span></label>
+    <div style="position:relative;max-width:240px;">
+      <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#888;">$</span>
+      <input type="number" id="avg_order_value" name="avg_order_value" min="1" step="1"
+             style="padding-left:1.6rem;" placeholder="e.g. 2500">
+    </div>
+    <p style="font-size:0.82rem;color:#888;margin:0.1rem 0 1.25rem;">
+      This is the <strong>only</strong> number on the revenue slide not measured from your call logs —
+      so it's worth getting right. Enter the customer's actual average order value and the model uses
+      <em>their</em> figure (fully defensible).
+      {% if business and business.suggested_avg_order_value %}
+        We estimated <strong>${{ "{:,}".format(business.suggested_avg_order_value|int) }}</strong> from
+        their website — replace it with the real number if you have it.
+      {% endif %}
+      Leave blank and the slide clearly labels the value as an estimate to confirm.
+    </p>
+
     <button type="submit" id="generate-btn" class="btn btn-primary">Generate deck →</button>
     <span id="upload-status" style="display:none;margin-left:0.85rem;font-size:0.88rem;
           color:#9a5a00;vertical-align:middle;">
