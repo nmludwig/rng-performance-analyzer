@@ -838,6 +838,117 @@ def _missed_time_split(r: PipelineResult):
     return {"total": total, "after": after, "business": total - after}
 
 
+def _slide_destinations(prs, r: PipelineResult, ctx, narr):
+    """Where the non-queue ('Unknown') misses actually land — the CN Calls split.
+
+    Only rendered when the CN Calls report (3rd upload) was provided. This is the
+    slide that turns "99% Unknown" into a named, defensible finding and makes the
+    structural case for AIR: a call that never reaches a queue can't be saved by
+    routing, SLAs or overflow staffing — only by an always-on AI receptionist.
+    """
+    d = r.call_destinations
+    s = prs.slides.add_slide(prs.slide_layouts[6])
+    _bg(s)
+    _logo(s)
+
+    share = d.nonqueue_share
+    _title_block(
+        s,
+        narr.get("title", "Where your missed calls actually go — most never reach a queue"),
+        narr.get("subtitle",
+                 f"{d.nonqueue_missed:,} of {d.total_missed:,} missed calls "
+                 f"({share*100:.0f}%) never entered a managed call queue · {r.reporting_period}"))
+
+    # The structural argument, stated plainly.
+    _rich(s, [[("A managed queue is the only call your team can route, staff or set an SLA on. ",
+                {"bold": True, "size": 11, "color": DARK}),
+               ("Everything below rang a direct line, ring group, or auto-attendant with no "
+                "queue behind it — so today nothing catches it when no one picks up.",
+                {"size": 11, "color": GRAY})]],
+          Inches(0.5), Inches(1.72), Inches(12.33), Inches(0.4))
+
+    # Top row: the queue-vs-non-queue split + the three biggest non-queue buckets.
+    cards = [
+        ("NEVER REACHED A QUEUE", RC_RED, RGBColor(0xFB,0xEA,0xEA),
+         d.nonqueue_missed, f"{share*100:.0f}% of all missed calls"),
+        ("RING GROUP / FRONT DESK", RC_ORANGE, RGBColor(0xFF,0xF1,0xE3),
+         d.ring_group_missed, "shared lines, no queue / SLA"),
+        ("DIRECT TO A PERSON", RC_BLUE, RGBColor(0xE9,0xEE,0xF6),
+         d.direct_missed, "one extension, no backup"),
+        ("IVR / AUTO-ATTENDANT", RC_TEAL, RGBColor(0xE4,0xF1,0xF1),
+         d.ivr_missed, "abandoned in the phone menu"),
+    ]
+    cw = Inches(2.92)
+    cxs = [Inches(0.5), Inches(3.55), Inches(6.6), Inches(9.65)]
+    for (label, col, bg, val, sub), cx in zip(cards, cxs):
+        _rect(s, cx, Inches(2.18), cw, Inches(1.0), bg, line=col, line_w=Pt(1), radius=True)
+        _text(s, label, cx + Inches(0.2), Inches(2.28), cw - Inches(0.35), Inches(0.3),
+              size=9.5, bold=True, color=col, font=FONT)
+        _text(s, f"{val:,}", cx + Inches(0.2), Inches(2.56), cw - Inches(0.35), Inches(0.42),
+              size=24, bold=True, color=DARK, font=FONT)
+        _text(s, sub, cx + Inches(0.2), Inches(2.98), cw - Inches(0.35), Inches(0.26),
+              size=8.5, color=GRAY, font=FONT)
+
+    # Top destinations table — real named lines, ranked by missed calls.
+    _text(s, "Your biggest missed-call destinations — none of them a managed queue",
+          Inches(0.5), Inches(3.34), Inches(12.33), Inches(0.32),
+          size=12, bold=True, color=RC_BLUE, font=FONT)
+    _dest_table(s, d, Inches(0.5), Inches(3.74), Inches(12.33))
+
+    # Takeaway strip.
+    _rect(s, Inches(0.5), Inches(6.78), Inches(0.5), Pt(0.5), CARD_BORDER)
+    _text(s, "Queue tuning, more agents and overflow routing can't recover a call that never "
+             "enters a queue. An AI receptionist answers every one of these lines, instantly, 24/7.",
+          Inches(0.5), Inches(6.85), Inches(12.3), Inches(0.4),
+          size=11, italic=True, color=RC_BLUE, align=PP_ALIGN.CENTER)
+    _footer(s, narr.get("page", 6))
+
+
+_DEST_COLOR = {
+    "Ring group / front desk": RC_ORANGE,
+    "Direct to a person's extension": RC_BLUE,
+    "IVR / auto-attendant menu": RC_TEAL,
+    "Main line / auto-receptionist": RC_GOLD,
+}
+
+
+def _dest_table(s, d: PipelineResult, x, y, w):
+    dests = d.top_destinations[:10]
+    rows = len(dests) + 1
+    row_in = 0.27
+    tbl_shape = s.shapes.add_table(rows, 4, x, y, w, Inches(row_in * rows))
+    tbl = tbl_shape.table
+    tbl.first_row = False
+    tbl.horz_banding = False
+    widths = [6.0, 3.63, 1.5, 1.2]
+    for j, ww in enumerate(widths):
+        tbl.columns[j].width = Inches(ww)
+    for i in range(rows):
+        tbl.rows[i].height = Inches(row_in)
+    headers = ["Destination", "Type", "Missed", "% of non-queue"]
+    for j, htext in enumerate(headers):
+        c = tbl.cell(0, j)
+        c.fill.solid(); c.fill.fore_color.rgb = RC_NAVY
+        _cell(c, htext, WHITE, bold=True, size=9,
+              align=PP_ALIGN.LEFT if j in (0, 1) else PP_ALIGN.CENTER)
+    nonq = d.nonqueue_missed or 1
+    for i, b in enumerate(dests, 1):
+        bg = ROW_ALT if i % 2 else WHITE
+        col = _DEST_COLOR.get(b.dest_type, DARK)
+        vals = [b.label[:46], b.dest_type, f"{b.missed:,}", f"{round(100*b.missed/nonq)}%"]
+        for j, v in enumerate(vals):
+            c = tbl.cell(i, j)
+            c.fill.solid(); c.fill.fore_color.rgb = bg
+            if j == 1:
+                cc, bold = col, True
+            elif j == 2:
+                cc, bold = DARK, True
+            else:
+                cc, bold = DARK, False
+            _cell(c, v, cc, bold=bold, size=9,
+                  align=PP_ALIGN.LEFT if j in (0, 1) else PP_ALIGN.CENTER)
+
+
 def _unstaffed_queues(r: PipelineResult):
     """Queues with inbound calls but zero ever answered — config/staffing fixes."""
     qr = r.queues_report
@@ -1482,6 +1593,10 @@ def build_deck(result: PipelineResult, run_id: str, customer: str, ae_name: str,
 
     _slide1(prs, result, ctx, narr1)
     _slide2(prs, result, ctx, narr2, sales_queue_calls)
+    # When the CN Calls report (3rd upload) is present, show where the non-queue
+    # misses actually land — directly after the headline they belong to.
+    if result.call_destinations and result.call_destinations.nonqueue_missed > 0:
+        _slide_destinations(prs, result, ctx, {})
     _slide_hourly(prs, result, ctx, narr_hourly)
     _slide3(prs, result, ctx, narr3)
     _slide4(prs, result, ctx, narr4)

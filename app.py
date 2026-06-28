@@ -182,10 +182,27 @@ def upload(run_id):
         flash("Only Excel files (.xlsx / .xls) are accepted for the Queues report.")
         return redirect(url_for("upload_step", run_id=run_id))
 
+    # Optional 3rd/4th uploads: the CN Calls report (splits non-queue misses by
+    # destination) and the Company Numbers report (per-number rollup + labels).
+    cn_calls_file = request.files.get("cn_calls")
+    company_numbers_file = request.files.get("company_numbers")
+    for label, f in (("CN Calls report", cn_calls_file),
+                     ("Company Numbers report", company_numbers_file)):
+        if f and f.filename and not f.filename.lower().endswith((".xlsx", ".xls")):
+            flash(f"Only Excel files (.xlsx / .xls) are accepted for the {label}.")
+            return redirect(url_for("upload_step", run_id=run_id))
+
     upload_path = UPLOAD_FOLDER / f"{run_id}.xlsx"
     file.save(upload_path)
     queues_path = UPLOAD_FOLDER / f"{run_id}_queues.xlsx"
     queues_file.save(queues_path)
+
+    if cn_calls_file and cn_calls_file.filename:
+        cn_calls_file.save(UPLOAD_FOLDER / f"{run_id}_cncalls.xlsx")
+        session["cn_calls_filename"] = cn_calls_file.filename
+    if company_numbers_file and company_numbers_file.filename:
+        company_numbers_file.save(UPLOAD_FOLDER / f"{run_id}_company.xlsx")
+        session["company_numbers_filename"] = company_numbers_file.filename
 
     session["filename"] = file.filename
     session["queues_filename"] = queues_file.filename
@@ -319,6 +336,7 @@ def api_process_stream(run_id):
             result = build_result(sdf, tiers, queues_report=queues_report)
             if reporting_period:
                 result.reporting_period = reporting_period
+            _attach_call_destinations(result, run_id)
 
             yield ev(stage="deck", msg="Writing the slides with Claude…", pct=78)
             build_deck(
@@ -365,6 +383,29 @@ def _business_summary_from(biz):
     }
 
 
+def _attach_call_destinations(result, run_id):
+    """Parse the optional CN Calls / Company Numbers uploads and attach the
+    non-queue destination breakdown to the result. Silently no-ops if absent."""
+    from pipeline import parse_call_destinations, parse_company_numbers
+
+    company_path = UPLOAD_FOLDER / f"{run_id}_company.xlsx"
+    cncalls_path = UPLOAD_FOLDER / f"{run_id}_cncalls.xlsx"
+    labels = {}
+    if company_path.exists():
+        try:
+            cn = parse_company_numbers(company_path)
+            result.company_numbers = cn
+            labels = cn.labels
+        except Exception:
+            pass
+    if cncalls_path.exists():
+        try:
+            result.call_destinations = parse_call_destinations(cncalls_path, number_labels=labels)
+        except Exception:
+            pass
+    return result
+
+
 def _run_pipeline_and_build(run_id, upload_path, messages):
     from pipeline import (parse_sessions, build_result, distinct_queues,
                           parse_queues_report, queues_report_queue_names)
@@ -398,6 +439,7 @@ def _run_pipeline_and_build(run_id, upload_path, messages):
 
     tiers = classify_queues(queues, business_context=business_context)
     result = build_result(sdf, tiers, queues_report=queues_report)
+    _attach_call_destinations(result, run_id)
 
     override_period = session.get("reporting_period", "").strip()
     if override_period:

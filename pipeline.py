@@ -17,6 +17,7 @@ Methodology (locked, validated against real FBM export):
 """
 
 from __future__ import annotations
+import re
 import numpy as np
 import pandas as pd
 from pathlib import Path
@@ -164,6 +165,9 @@ class PipelineResult:
 
     queue_stats: dict[str, QueueStats] = field(default_factory=dict)
     queues_report: Optional[QueuesReport] = None   # real abandoned data (2nd upload)
+    # Where the non-queue ("Unknown") misses actually landed (CN Calls report, 3rd upload)
+    call_destinations: Optional["CallDestinations"] = None
+    company_numbers: Optional["CompanyNumbers"] = None   # per-number rollup (4th upload)
     reporting_period: str = ""
     reconciliation_ok: bool = True
     reconciliation_note: str = ""
@@ -710,3 +714,253 @@ def queues_report_queue_names(report: Optional[QueuesReport]) -> list[str]:
     if not report:
         return []
     return [q.name for q in report.queues]
+
+
+# ---------------------------------------------------------------------------
+# CN Calls report (3rd upload) — cracking open the non-queue "Unknown" bucket.
+#
+# The standard Calls export tells us a call was missed, but for calls that never
+# entered an ACD queue (blank Queue) it can't say WHERE the call went. The CN
+# Calls report adds "To Name" / "To Number", letting us split those non-queue
+# misses into named destinations: ring/front-desk groups, direct-to-a-person
+# extensions, and main published lines hitting the auto-receptionist.
+# ---------------------------------------------------------------------------
+
+DEST_RING_GROUP = "Ring group / front desk"
+DEST_DIRECT = "Direct to a person's extension"
+DEST_MAIN_LINE = "Main line / auto-receptionist"
+DEST_IVR = "IVR / auto-attendant menu"
+
+# An IVR/auto-attendant destination — the caller hit a menu and never reached a
+# live line. Checked BEFORE the group/individual split.
+_IVR_MARKERS = ("ivr", "auto attendant", "auto-attendant", "autoattendant",
+                "menu", "auto receptionist", "auto-receptionist")
+
+# Tokens that mark a destination name as a SHARED line (group/desk/dept) rather
+# than an individual person. RingCentral also prefixes many departments with "_".
+_GROUP_MARKERS = (
+    "reception", "front desk", "operator", "group", "team", "sales", "support",
+    "service", "dept", "department", "desk", "branch", "store", "office", "help",
+    "main", "queue", "cmplt", "complete", "port", "billing", "dispatch", "intake",
+)
+
+
+def _norm_num(s) -> str:
+    digits = re.sub(r"\D", "", str(s or ""))
+    return digits[-10:] if len(digits) >= 10 else digits
+
+
+def _looks_like_group(name: str) -> bool:
+    """Heuristic: does this To Name represent a shared line vs. an individual?"""
+    n = (name or "").strip()
+    if not n:
+        return False
+    if n.startswith("_"):                       # RC department-naming convention
+        return True
+    low = n.lower()
+    if any(m in low for m in _GROUP_MARKERS):
+        return True
+    words = n.split()
+    if len(words) >= 2 and n == n.upper() and any(c.isalpha() for c in n):
+        return True                              # ALL-CAPS multiword, e.g. "PORT CMPLT"
+    return False
+
+
+@dataclass
+class DestBucket:
+    label: str
+    dest_type: str
+    missed: int = 0
+
+
+@dataclass
+class CallDestinations:
+    """Split of missed calls by where they actually landed (CN Calls report)."""
+    total_missed: int = 0
+    queue_missed: int = 0          # missed calls that DID enter a managed queue
+    nonqueue_missed: int = 0       # missed calls with no queue behind them
+    ring_group_missed: int = 0
+    direct_missed: int = 0
+    mainline_missed: int = 0
+    ivr_missed: int = 0
+    top_destinations: list = field(default_factory=list)   # list[DestBucket]
+
+    @property
+    def nonqueue_share(self) -> float:
+        return self.nonqueue_missed / self.total_missed if self.total_missed else 0.0
+
+    @property
+    def queue_share(self) -> float:
+        return self.queue_missed / self.total_missed if self.total_missed else 0.0
+
+
+@dataclass
+class NumberStat:
+    number: str
+    label: str
+    inbound: int = 0
+    answered: int = 0
+    missed: int = 0
+
+    @property
+    def miss_rate(self) -> float:
+        return self.missed / self.inbound if self.inbound else 0.0
+
+
+@dataclass
+class CompanyNumbers:
+    """Per-published-number rollup from the Company Numbers report (4th upload)."""
+    total_inbound: int = 0
+    total_answered: int = 0
+    total_missed: int = 0
+    numbers: list = field(default_factory=list)   # list[NumberStat], sorted by missed desc
+    labels: dict = field(default_factory=dict)     # normalized number -> friendly label
+
+
+_CN_REQUIRED_COLS = {"Session Id", "Call Direction", "Result", "Queue", "To Number"}
+
+
+def parse_call_destinations(path: Path,
+                            number_labels: Optional[dict] = None) -> CallDestinations:
+    """Parse the CN Calls report and split missed calls by destination.
+
+    Sessions are deduplicated by Session Id and held to the SAME spam rule as the
+    main pipeline (max leg Call Length <= 5s excluded) so the counts reconcile
+    with the headline missed-call figure.
+    """
+    import openpyxl
+
+    number_labels = number_labels or {}
+    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    try:
+        sheet_name = wb.sheetnames[0]
+        for name in wb.sheetnames:
+            if name.strip().lower() == "calls":
+                sheet_name = name
+                break
+        ws = wb[sheet_name]
+        rows = ws.iter_rows(values_only=True)
+        try:
+            header = [str(h).strip() if h is not None else "" for h in next(rows)]
+        except StopIteration:
+            raise ValueError("The CN Calls report sheet is empty.")
+        missing = _CN_REQUIRED_COLS - set(header)
+        if missing:
+            raise ValueError(
+                "This doesn't look like the CN Calls report. It needs the per-call "
+                "columns including 'To Name' / 'To Number' (Analytics → Company "
+                f"Numbers → Calls → Download → Excel). Missing: {missing}."
+            )
+        idx = {h: i for i, h in enumerate(header)}
+        dir_i = idx["Call Direction"]
+
+        def g(row, col):
+            i = idx.get(col)
+            if i is None or i >= len(row):
+                return ""
+            v = row[i]
+            return "" if v is None else str(v).strip()
+
+        # session_id -> aggregated state
+        sess: dict[str, dict] = {}
+        for row in rows:
+            if dir_i >= len(row):
+                continue
+            d = row[dir_i]
+            if d is None or str(d).strip().lower() != "inbound":
+                continue
+            sid = g(row, "Session Id")
+            if not sid:
+                continue
+            res = g(row, "Result").lower()
+            handle = _to_seconds(g(row, "Handle Time")) if "Handle Time" in idx else 0.0
+            answered = (res == "answered") or handle > 0
+            call_len = _to_seconds(g(row, "Call Length"))
+            s = sess.get(sid)
+            if s is None:
+                s = {"answered": False, "queue": "", "to_name": "",
+                     "to_number": "", "callmax": 0.0}
+                sess[sid] = s
+            if answered:
+                s["answered"] = True
+            if not s["queue"]:
+                s["queue"] = g(row, "Queue")
+            if not s["to_name"]:
+                s["to_name"] = g(row, "To Name")
+            if not s["to_number"]:
+                s["to_number"] = g(row, "To Number")
+            if call_len > s["callmax"]:
+                s["callmax"] = call_len
+    finally:
+        wb.close()
+
+    dest = CallDestinations()
+    counts: dict[tuple, int] = {}
+    for s in sess.values():
+        if s["answered"]:
+            continue
+        if s["callmax"] <= SPAM_MAX_SECONDS:    # same spam rule as the headline
+            continue
+        dest.total_missed += 1
+        if s["queue"]:
+            dest.queue_missed += 1
+            continue
+        dest.nonqueue_missed += 1
+        name = s["to_name"]
+        if name:
+            low = name.lower()
+            if any(m in low for m in _IVR_MARKERS):
+                dest.ivr_missed += 1
+                dtype = DEST_IVR
+            elif _looks_like_group(name):
+                dest.ring_group_missed += 1
+                dtype = DEST_RING_GROUP
+            else:
+                dest.direct_missed += 1
+                dtype = DEST_DIRECT
+            label = name
+        else:
+            dest.mainline_missed += 1
+            dtype = DEST_MAIN_LINE
+            label = number_labels.get(_norm_num(s["to_number"])) or s["to_number"] or "Unknown number"
+        key = (label, dtype)
+        counts[key] = counts.get(key, 0) + 1
+
+    dest.top_destinations = [
+        DestBucket(label=l, dest_type=t, missed=c)
+        for (l, t), c in sorted(counts.items(), key=lambda kv: -kv[1])[:12]
+    ]
+    return dest
+
+
+def parse_company_numbers(path: Path) -> CompanyNumbers:
+    """Parse the RingCentral Company Numbers report (per-published-number rollup)."""
+    xl = pd.ExcelFile(path)
+    names_lower = {n.strip().lower(): n for n in xl.sheet_names}
+    sheet = names_lower.get("company numbers")
+    if not sheet:
+        raise ValueError(
+            "This doesn't look like a Company Numbers report. It should have a "
+            "'Company Numbers' tab (Analytics → Company Numbers → Download → Excel). "
+            f"Found sheets: {xl.sheet_names}."
+        )
+    df = pd.read_excel(path, sheet_name=sheet, dtype=str)
+    df.columns = [c.strip() for c in df.columns]
+    cn = CompanyNumbers()
+    for _, row in df.iterrows():
+        num = str(row.get("Company Number") or "").strip()
+        if not num:
+            continue
+        label = str(row.get("Number Label") or "").strip()
+        inbound = _to_int(row.get("# Inbound"))
+        answered = _to_int(row.get("# Answered"))
+        missed = _to_int(row.get("# Missed (w/VM)"))
+        cn.numbers.append(NumberStat(number=num, label=label, inbound=inbound,
+                                     answered=answered, missed=missed))
+        cn.total_inbound += inbound
+        cn.total_answered += answered
+        cn.total_missed += missed
+        if label:
+            cn.labels[_norm_num(num)] = label
+    cn.numbers.sort(key=lambda n: -n.missed)
+    return cn

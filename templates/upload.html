@@ -50,6 +50,24 @@
     <input type="file" id="queues_report" name="queues_report" accept=".xlsx,.xls"
            style="width:100%;padding:0.6rem 0;margin-bottom:1.25rem;font-size:0.95rem;" required>
 
+    <label for="cn_calls">3. CN Calls report — Excel (.xlsx) <span style="font-weight:400;color:#999;">(recommended)</span></label>
+    <p style="font-size:0.82rem;color:#888;margin:0.1rem 0 0.4rem;">
+      Analytics → <strong>Company Numbers</strong> → <strong>Calls</strong> → Download → Excel. Adds the
+      <strong>To&nbsp;Name / To&nbsp;Number</strong> columns, so we can show <em>where</em> missed calls
+      that never entered a queue actually landed — ring groups, direct lines and auto-attendants.
+      This unlocks the "where your missed calls really go" slide.
+    </p>
+    <input type="file" id="cn_calls" name="cn_calls" accept=".xlsx,.xls"
+           style="width:100%;padding:0.6rem 0;margin-bottom:1.25rem;font-size:0.95rem;">
+
+    <label for="company_numbers">4. Company Numbers report — Excel (.xlsx) <span style="font-weight:400;color:#999;">(optional)</span></label>
+    <p style="font-size:0.82rem;color:#888;margin:0.1rem 0 0.4rem;">
+      Analytics → <strong>Company Numbers</strong> → Download → Excel. A per-published-number rollup that
+      supplies friendly <strong>number labels</strong> for the destination breakdown.
+    </p>
+    <input type="file" id="company_numbers" name="company_numbers" accept=".xlsx,.xls"
+           style="width:100%;padding:0.6rem 0;margin-bottom:1.25rem;font-size:0.95rem;">
+
     <label for="reporting_period">Reporting period <span style="font-weight:400;color:#999;">(optional)</span></label>
     <input type="text" id="reporting_period" name="reporting_period" placeholder="auto-detected from data">
     <p style="font-size:0.82rem;color:#888;margin:0.1rem 0 1.25rem;">
