@@ -192,6 +192,22 @@ def upload(run_id):
             flash(f"Only Excel files (.xlsx / .xls) are accepted for the {label}.")
             return redirect(url_for("upload_step", run_id=run_id))
 
+    # Non-blocking filename-structure warning: RingCentral exports follow a
+    # predictable naming scheme, so a mismatched prefix usually means the wrong
+    # report (or tab) was downloaded into that slot. We warn but still proceed.
+    _expected = (
+        (file, "RingCentral_PR_Calls", "PR Calls"),
+        (queues_file, "RingCentral_PR_Queues", "PR Queues"),
+        (cn_calls_file, "RingCentral_CN_Calls", "CN Calls"),
+        (company_numbers_file, "RingCentral_CN_Numbers", "CN Numbers"),
+    )
+    for f, prefix, label in _expected:
+        if f and f.filename and not f.filename.lower().startswith(prefix.lower()):
+            flash(
+                f"Heads up: the file you uploaded for {label} (“{f.filename}”) "
+                f"doesn’t start with “{prefix}…”. Double-check it’s "
+                f"the right export.")
+
     upload_path = UPLOAD_FOLDER / f"{run_id}.xlsx"
     file.save(upload_path)
     queues_path = UPLOAD_FOLDER / f"{run_id}_queues.xlsx"

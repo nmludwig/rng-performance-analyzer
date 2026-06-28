@@ -28,10 +28,14 @@
   </p>
 
   <form method="POST" action="{{ url_for('upload', run_id=run_id) }}" enctype="multipart/form-data">
-    <label for="report">1. Calls export — Excel (.xlsx)</label>
+    <div style="font-weight:700;font-size:0.78rem;letter-spacing:0.04em;text-transform:uppercase;
+         color:#062E5C;margin:0 0 0.6rem;">Performance Reports (PR) — required</div>
+
+    <label for="report">1. PR Calls — call-by-call detail <span style="color:#c0392b;font-weight:700;">required</span></label>
     <p style="font-size:0.82rem;color:#888;margin:0.1rem 0 0.4rem;">
       Performance Reports → <strong>Calls</strong> tab → Download → Excel. Drives dedup,
       missed-call timing, and queue classification.
+      File name starts with <code style="background:#f3f5f8;padding:0.05rem 0.3rem;border-radius:4px;">RingCentral_PR_Calls…</code>
     </p>
     <p style="font-size:0.8rem;color:#9a5a00;background:#fff8f0;border:1px solid #ffe0c2;
        border-radius:6px;padding:0.5rem 0.7rem;margin:0.1rem 0 0.5rem;line-height:1.5;">
@@ -39,34 +43,44 @@
       generate and download from the analytics portal, and may be <strong>~40&nbsp;MB</strong> for
       a full month. Wait for it to finish downloading before selecting it here.
     </p>
-    <input type="file" id="report" name="report" accept=".xlsx,.xls"
-           style="width:100%;padding:0.6rem 0;margin-bottom:1.25rem;font-size:0.95rem;" required>
+    <input type="file" id="report" name="report" accept=".xlsx,.xls" data-expect="RingCentral_PR_Calls" data-expect-label="RingCentral_PR_Calls…"
+           style="width:100%;padding:0.6rem 0;margin-bottom:0.35rem;font-size:0.95rem;" required>
+    <p class="filewarn" data-for="report"></p>
 
-    <label for="queues_report">2. Queues report — Excel (.xlsx) <span style="color:#c0392b;font-weight:700;">required</span></label>
+    <label for="queues_report">2. PR Queues — queue performance <span style="color:#c0392b;font-weight:700;">required</span></label>
     <p style="font-size:0.82rem;color:#888;margin:0.1rem 0 0.4rem;">
       Performance Reports → <strong>Queues</strong> tab → Download → Excel. This is the only
       file that contains <strong>abandoned-in-queue</strong> calls and wait-time / service-level data.
+      File name starts with <code style="background:#f3f5f8;padding:0.05rem 0.3rem;border-radius:4px;">RingCentral_PR_Queues…</code>
     </p>
-    <input type="file" id="queues_report" name="queues_report" accept=".xlsx,.xls"
-           style="width:100%;padding:0.6rem 0;margin-bottom:1.25rem;font-size:0.95rem;" required>
+    <input type="file" id="queues_report" name="queues_report" accept=".xlsx,.xls" data-expect="RingCentral_PR_Queues" data-expect-label="RingCentral_PR_Queues…"
+           style="width:100%;padding:0.6rem 0;margin-bottom:0.35rem;font-size:0.95rem;" required>
+    <p class="filewarn" data-for="queues_report"></p>
 
-    <label for="cn_calls">3. CN Calls report — Excel (.xlsx) <span style="font-weight:400;color:#999;">(recommended)</span></label>
+    <div style="font-weight:700;font-size:0.78rem;letter-spacing:0.04em;text-transform:uppercase;
+         color:#062E5C;margin:1.4rem 0 0.6rem;">Company Numbers (CN) — optional, adds the destination slide</div>
+
+    <label for="cn_calls">3. CN Calls — calls by company number <span style="font-weight:400;color:#999;">(recommended)</span></label>
     <p style="font-size:0.82rem;color:#888;margin:0.1rem 0 0.4rem;">
       Analytics → <strong>Company Numbers</strong> → <strong>Calls</strong> → Download → Excel. Adds the
       <strong>To&nbsp;Name / To&nbsp;Number</strong> columns, so we can show <em>where</em> missed calls
       that never entered a queue actually landed — ring groups, direct lines and auto-attendants.
       This unlocks the "where your missed calls really go" slide.
+      File name starts with <code style="background:#f3f5f8;padding:0.05rem 0.3rem;border-radius:4px;">RingCentral_CN_Calls…</code>
     </p>
-    <input type="file" id="cn_calls" name="cn_calls" accept=".xlsx,.xls"
-           style="width:100%;padding:0.6rem 0;margin-bottom:1.25rem;font-size:0.95rem;">
+    <input type="file" id="cn_calls" name="cn_calls" accept=".xlsx,.xls" data-expect="RingCentral_CN_Calls" data-expect-label="RingCentral_CN_Calls…"
+           style="width:100%;padding:0.6rem 0;margin-bottom:0.35rem;font-size:0.95rem;">
+    <p class="filewarn" data-for="cn_calls"></p>
 
-    <label for="company_numbers">4. Company Numbers report — Excel (.xlsx) <span style="font-weight:400;color:#999;">(optional)</span></label>
+    <label for="company_numbers">4. CN Numbers — per-number rollup <span style="font-weight:400;color:#999;">(optional)</span></label>
     <p style="font-size:0.82rem;color:#888;margin:0.1rem 0 0.4rem;">
       Analytics → <strong>Company Numbers</strong> → Download → Excel. A per-published-number rollup that
       supplies friendly <strong>number labels</strong> for the destination breakdown.
+      File name starts with <code style="background:#f3f5f8;padding:0.05rem 0.3rem;border-radius:4px;">RingCentral_CN_Numbers…</code>
     </p>
-    <input type="file" id="company_numbers" name="company_numbers" accept=".xlsx,.xls"
-           style="width:100%;padding:0.6rem 0;margin-bottom:1.25rem;font-size:0.95rem;">
+    <input type="file" id="company_numbers" name="company_numbers" accept=".xlsx,.xls" data-expect="RingCentral_CN_Numbers" data-expect-label="RingCentral_CN_Numbers…"
+           style="width:100%;padding:0.6rem 0;margin-bottom:0.35rem;font-size:0.95rem;">
+    <p class="filewarn" data-for="company_numbers"></p>
 
     <label for="reporting_period">Reporting period <span style="font-weight:400;color:#999;">(optional)</span></label>
     <input type="text" id="reporting_period" name="reporting_period" placeholder="auto-detected from data">
@@ -163,6 +177,24 @@
     animation: rc-spin 0.7s linear infinite;
   }
   .btn[disabled] { opacity: 0.7; cursor: progress; }
+  .filewarn {
+    display: none;
+    font-size: 0.82rem;
+    line-height: 1.45;
+    color: #9a5a00;
+    background: #fff8f0;
+    border: 1px solid #ffe0c2;
+    border-radius: 6px;
+    padding: 0.45rem 0.65rem;
+    margin: 0 0 1.0rem;
+  }
+  .filewarn.show { display: block; }
+  .filewarn.ok {
+    display: block;
+    color: #1f7a32;
+    background: #f1f9f2;
+    border-color: #cce8d1;
+  }
 </style>
 <script>
   (function () {
@@ -176,6 +208,40 @@
       btn.disabled = true;
       btn.textContent = 'Uploading…';
       if (status) status.style.display = 'inline-block';
+    });
+
+    // --- Filename-structure warnings -------------------------------------
+    // Each file input declares the expected RingCentral export prefix via
+    // data-expect. On selection we compare (case-insensitively) and show a
+    // non-blocking warning if it doesn't match — the user can still submit.
+    function warnEl(name) {
+      return document.querySelector('.filewarn[data-for="' + name + '"]');
+    }
+    function checkInput(input) {
+      var w = warnEl(input.name);
+      if (!w) return;
+      var expect = (input.getAttribute('data-expect') || '');
+      var label = (input.getAttribute('data-expect-label') || expect);
+      if (!input.files || !input.files.length) {
+        w.className = 'filewarn';
+        w.textContent = '';
+        return;
+      }
+      var fname = input.files[0].name || '';
+      var ok = fname.toLowerCase().indexOf(expect.toLowerCase()) === 0;
+      if (ok) {
+        w.className = 'filewarn ok';
+        w.textContent = '✓ Looks right — matches the expected ' + label + ' export.';
+      } else {
+        w.className = 'filewarn show';
+        w.innerHTML = '⚠ This may not be the right file. The name should start with <strong>' +
+          label + '</strong>, but you picked “' + fname +
+          '”. Double-check you exported the correct report (you can still submit if you’re sure).';
+      }
+    }
+    var inputs = form.querySelectorAll('input[type="file"][data-expect]');
+    Array.prototype.forEach.call(inputs, function (input) {
+      input.addEventListener('change', function () { checkInput(input); });
     });
   })();
 </script>
