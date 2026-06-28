@@ -1580,10 +1580,12 @@ def build_deck(result: PipelineResult, run_id: str, customer: str, ae_name: str,
     narr1 = _narr1(ctx, prior_instructions)
     # Always state the scoping rule on the methodology slide, regardless of what
     # the narrative model returns — this is where "why we filter queues" lives.
+    # Keep this to a SINGLE line — a wrapped subtitle overflows its box and
+    # collides with the card row at y=1.85". Customer-facing scope covers call
+    # queues, ring groups & direct extensions; back-office queues are excluded.
     narr1["subtitle"] = (f"RingCentral Performance Reports · {result.reporting_period} · "
-                         f"{result.universe_sessions:,} inbound calls across ALL customer-facing lines "
-                         f"— call queues, ring groups & direct extensions · "
-                         f"internal / back-office queues excluded (no customer on the line)")
+                         f"{result.universe_sessions:,} inbound calls across all customer-facing lines "
+                         f"· back-office queues excluded")
     # When most misses never entered a managed queue (direct dials, ring/hunt groups,
     # IVR), make that the headline finding on card 4 and frame it as the AIR case —
     # routing/SLA/overflow can't catch a call that never reaches a queue. This is both
