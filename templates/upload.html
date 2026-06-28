@@ -22,19 +22,24 @@
        padding:0.3rem 0.75rem;border-radius:999px;margin-bottom:0.75rem;">
     {% if business and business.available %}Step 3 of 3{% else %}Step 2 of 2{% endif %} · Call data
   </div>
-  <h2>Upload your call export</h2>
+  <h2>Upload your two RingCentral reports</h2>
   <p style="color:#777;font-size:0.9rem;margin-top:-0.5rem;margin-bottom:1.25rem;">
-    The RingCentral Performance Report → <strong>Calls</strong> export, as Excel (.xlsx).
+    The deck is built from exactly <strong>two</strong> Performance Report exports — both Excel (.xlsx),
+    both required. Nothing else is needed.
   </p>
 
   <form method="POST" action="{{ url_for('upload', run_id=run_id) }}" enctype="multipart/form-data">
     <div style="font-weight:700;font-size:0.78rem;letter-spacing:0.04em;text-transform:uppercase;
-         color:#062E5C;margin:0 0 0.6rem;">Performance Reports (PR) — required</div>
+         color:#062E5C;margin:0 0 0.6rem;">Both reports are required — export both from the same date range</div>
 
     <label for="report">1. PR Calls — call-by-call detail <span style="color:#c0392b;font-weight:700;">required</span></label>
     <p style="font-size:0.82rem;color:#888;margin:0.1rem 0 0.4rem;">
-      Performance Reports → <strong>Calls</strong> tab → Download → Excel. Drives dedup,
-      missed-call timing, and queue classification.
+      Performance Reports → <strong>Calls</strong> tab → Download → Excel.
+      <strong style="color:#555;">This is the backbone of the deck.</strong> It powers:
+      the headline <strong>missed-call count &amp; miss rate</strong>, the
+      <strong>missed-calls-by-queue</strong> table, the <strong>hourly miss-rate chart</strong> with
+      after-hours / weekend / midday breakdowns, <strong>answered-under-60-second</strong> calls, and
+      repeat-caller detection. Without it there is no deck.
       File name starts with <code style="background:#f3f5f8;padding:0.05rem 0.3rem;border-radius:4px;">RingCentral_PR_Calls…</code>
     </p>
     <p style="font-size:0.8rem;color:#9a5a00;background:#fff8f0;border:1px solid #ffe0c2;
@@ -49,38 +54,16 @@
 
     <label for="queues_report">2. PR Queues — queue performance <span style="color:#c0392b;font-weight:700;">required</span></label>
     <p style="font-size:0.82rem;color:#888;margin:0.1rem 0 0.4rem;">
-      Performance Reports → <strong>Queues</strong> tab → Download → Excel. This is the only
-      file that contains <strong>abandoned-in-queue</strong> calls and wait-time / service-level data.
+      Performance Reports → <strong>Queues</strong> tab → Download → Excel.
+      <strong style="color:#555;">This is the only source of abandonment data.</strong> It powers the
+      <strong>abandoned-in-queue</strong> count and abandon rate, <strong>average &amp; longest wait</strong>,
+      <strong>service level (SLA)</strong>, and the <strong>most-abandoned-queues</strong> table. The Calls
+      export has no "abandoned" field, so without this report those numbers are blank.
       File name starts with <code style="background:#f3f5f8;padding:0.05rem 0.3rem;border-radius:4px;">RingCentral_PR_Queues…</code>
     </p>
     <input type="file" id="queues_report" name="queues_report" accept=".xlsx,.xls" data-expect="RingCentral_PR_Queues" data-expect-label="RingCentral_PR_Queues…"
            style="width:100%;padding:0.6rem 0;margin-bottom:0.35rem;font-size:0.95rem;" required>
     <p class="filewarn" data-for="queues_report"></p>
-
-    <div style="font-weight:700;font-size:0.78rem;letter-spacing:0.04em;text-transform:uppercase;
-         color:#062E5C;margin:1.4rem 0 0.6rem;">Company Numbers (CN) — optional, adds the destination slide</div>
-
-    <label for="cn_calls">3. CN Calls — calls by company number <span style="font-weight:400;color:#999;">(recommended)</span></label>
-    <p style="font-size:0.82rem;color:#888;margin:0.1rem 0 0.4rem;">
-      Analytics → <strong>Company Numbers</strong> → <strong>Calls</strong> → Download → Excel. Adds the
-      <strong>To&nbsp;Name / To&nbsp;Number</strong> columns, so we can show <em>where</em> missed calls
-      that never entered a queue actually landed — ring groups, direct lines and auto-attendants.
-      This unlocks the "where your missed calls really go" slide.
-      File name starts with <code style="background:#f3f5f8;padding:0.05rem 0.3rem;border-radius:4px;">RingCentral_CN_Calls…</code>
-    </p>
-    <input type="file" id="cn_calls" name="cn_calls" accept=".xlsx,.xls" data-expect="RingCentral_CN_Calls" data-expect-label="RingCentral_CN_Calls…"
-           style="width:100%;padding:0.6rem 0;margin-bottom:0.35rem;font-size:0.95rem;">
-    <p class="filewarn" data-for="cn_calls"></p>
-
-    <label for="company_numbers">4. CN Numbers — per-number rollup <span style="font-weight:400;color:#999;">(optional)</span></label>
-    <p style="font-size:0.82rem;color:#888;margin:0.1rem 0 0.4rem;">
-      Analytics → <strong>Company Numbers</strong> → Download → Excel. A per-published-number rollup that
-      supplies friendly <strong>number labels</strong> for the destination breakdown.
-      File name starts with <code style="background:#f3f5f8;padding:0.05rem 0.3rem;border-radius:4px;">RingCentral_CN_Numbers…</code>
-    </p>
-    <input type="file" id="company_numbers" name="company_numbers" accept=".xlsx,.xls" data-expect="RingCentral_CN_Numbers" data-expect-label="RingCentral_CN_Numbers…"
-           style="width:100%;padding:0.6rem 0;margin-bottom:0.35rem;font-size:0.95rem;">
-    <p class="filewarn" data-for="company_numbers"></p>
 
     <label for="reporting_period">Reporting period <span style="font-weight:400;color:#999;">(optional)</span></label>
     <input type="text" id="reporting_period" name="reporting_period" placeholder="auto-detected from data">
