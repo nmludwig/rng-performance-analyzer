@@ -1058,8 +1058,24 @@ def _slide_call_reasons(prs, r: PipelineResult, ctx, narr):
     biz = ctx.get("business") or {}
     summary = (biz.get("summary") or "").strip()
     url = biz.get("url", "")
-    _title_block(s, narr.get("title", "What your callers are likely calling about"),
-                 narr.get("subtitle", f"Predicted from {url} · mapped to your queues — so coverage gaps mean lost business"))
+    customer = ctx.get("customer", "this business")
+    reasons_present = bool(biz.get("predicted_call_reasons"))
+
+    # This is the OPENER: ground the deck in who they are and who's calling them,
+    # then land the headline missed-call number. With no business context (no
+    # Firecrawl crawl), fall back to a clean, number-led opener so the slide
+    # always renders.
+    if not (summary or reasons_present):
+        _title_block(s, f"{r.total_missed:,} missed calls — and who was trying to reach {customer}",
+                     f"RingCentral Performance Reports · {r.reporting_period} · "
+                     f"session-deduplicated · spam-filtered · customer-facing lines only")
+        _footer(s)
+        return
+
+    _title_block(s, narr.get("title", f"Who {customer} is — and who's calling them"),
+                 narr.get("subtitle",
+                          f"{r.total_missed:,} missed calls in {r.reporting_period} · "
+                          f"these are the callers a business like this hears from every day"))
 
     # Business profile band
     by = Inches(1.85)
@@ -1100,9 +1116,10 @@ def _slide_call_reasons(prs, r: PipelineResult, ctx, narr):
             _text(s, "● revenue-relevant", cx + Inches(0.32), cy + chh - Inches(0.32),
                   cw - Inches(0.55), Inches(0.28), size=9, bold=True, color=RC_ORANGE)
 
-    _text(s, "Predicted from public website content — confirm with the customer. Every missed call above is a "
-             "missed revenue or retention moment AIR would have answered.",
-          Inches(0.5), Inches(6.75), Inches(12.33), Inches(0.5),
+    _text(s, "Caller types inferred from public website content — illustrative, not a claim about your call logs. "
+             "The point: these are routine, answerable calls — the same kind that show up later in your RingCentral "
+             "data as abandoned and sub-60-second calls.",
+          Inches(0.5), Inches(6.7), Inches(12.33), Inches(0.5),
           size=10, italic=True, color=GRAY, align=PP_ALIGN.CENTER)
     _footer(s)
 
@@ -1577,31 +1594,10 @@ def build_deck(result: PipelineResult, run_id: str, customer: str, ae_name: str,
 
     ctx["roi"] = _roi_model(result, ctx["air_rate"])
 
-    narr1 = _narr1(ctx, prior_instructions)
-    # Always state the scoping rule on the methodology slide, regardless of what
-    # the narrative model returns — this is where "why we filter queues" lives.
-    # Keep this to a SINGLE line — a wrapped subtitle overflows its box and
-    # collides with the card row at y=1.85". Customer-facing scope covers call
-    # queues, ring groups & direct extensions; back-office queues are excluded.
-    narr1["subtitle"] = (f"RingCentral Performance Reports · {result.reporting_period} · "
-                         f"{result.universe_sessions:,} inbound calls across all customer-facing lines "
-                         f"· back-office queues excluded")
-    # When most misses never entered a managed queue (direct dials, ring/hunt groups,
-    # IVR), make that the headline finding on card 4 and frame it as the AIR case —
-    # routing/SLA/overflow can't catch a call that never reaches a queue. This is both
-    # the most honest reading of the data and the strongest argument for AIR.
-    _unq_share = ctx.get("unqueued_share_pct", 0)
-    if _unq_share >= 40:
-        narr1["card4_heading"] = "Where the missed calls actually land"
-        narr1["card4"] = [
-            ("The pattern:", "We mapped every miss to where it landed — a managed call "
-                             "queue, or a direct line / ring group / IVR with no queue behind it."),
-            ("What we found:", f"{_unq_share}% of missed calls ({ctx.get('unqueued_missed', 0):,}) "
-                               "never entered a managed call queue at all."),
-            ("What it means:", "Routing rules, SLAs and overflow staffing can't recover a call that "
-                               "never reaches a queue. Only an always-on AI receptionist answers "
-                               "every inbound line — queues, ring groups and direct extensions alike."),
-        ]
+    # Narrative titles/subtitles for the slides we keep. The deck was deliberately
+    # simplified to a tight, defensible sequence (see the build order below):
+    # every slide after the business-context opener is verifiable straight from
+    # the RingCentral reports — nothing modeled except the one caveated slide.
     narr2 = _narr_titles(ctx, prior_instructions, "slide2")
     narr_hourly = {"title": "Calls slip away after hours, on weekends — and even midday",
                    "subtitle": f"Inbound miss rate by hour of day · {result.reporting_period} · when the business closes or gets busy, calls go unanswered"}
@@ -1612,31 +1608,24 @@ def build_deck(result: PipelineResult, run_id: str, customer: str, ae_name: str,
         narr3_sub = f"Abandoned-in-queue callers and short routine calls · customer-facing queues · {result.reporting_period}"
     narr3 = {"title": "Where AI Receptionist captures revenue today",
              "subtitle": narr3_sub}
-    narr4 = {"title": "Where customers are getting missed — by queue",
-             "subtitle": f"Session-deduplicated · spam-filtered · {result.reporting_period} · "
-                         f"customer-facing queues only · ranked by calls lost"}
 
     prs = Presentation()
     prs.slide_width = SLIDE_W
     prs.slide_height = SLIDE_H
     _WARM_SLIDES.clear()   # reset per-build (module-level set)
 
-    _slide1(prs, result, ctx, narr1)
+    # Simplified, defensible 6-slide flow:
+    #   1. Who they are + who's calling them (business context up front)
+    #   2. Missed calls by queue/company — the headline number + breakdown
+    #   3. Hourly trend + after-hours / weekend / midday miss rates
+    #   4. Answerable-call signals: abandons, answered <60s, wait/SLA
+    #   5. Illustrative opportunity (single, clearly-caveated money slide)
+    #   6. Recommendation & next steps
+    _slide_call_reasons(prs, result, ctx, {})   # opener — robust to missing business context
     _slide2(prs, result, ctx, narr2, sales_queue_calls)
-    # When the CN Calls report (3rd upload) is present, show where the non-queue
-    # misses actually land — directly after the headline they belong to.
-    if result.call_destinations and result.call_destinations.nonqueue_missed > 0:
-        _slide_destinations(prs, result, ctx, {})
     _slide_hourly(prs, result, ctx, narr_hourly)
     _slide3(prs, result, ctx, narr3)
-    _slide4(prs, result, ctx, narr4)
-    _slide_config_vs_air(prs, result, ctx, {})
-    if business and business.get("predicted_call_reasons"):
-        _slide_call_reasons(prs, result, ctx, {})
-    _slide_capabilities(prs, result, ctx, {})
-    _slide_cost(prs, result, ctx, {})
     _slide_revenue(prs, result, ctx, {})
-    _slide_investment(prs, result, ctx, {})
     _slide_next(prs, result, ctx, {})
 
     _stamp_page_numbers(prs)
