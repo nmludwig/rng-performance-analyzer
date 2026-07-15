@@ -47,19 +47,48 @@ WHITE = RGBColor(0xFF, 0xFF, 0xFF)
 CARD_BORDER = RGBColor(0xE2, 0xE4, 0xEA)
 ROW_ALT = RGBColor(0xF8, 0xF4, 0xF0)     # alternating table row
 
+# --- Clean-deck design system (matches the approved FBM branch/board decks) ---
+NAVY = RGBColor(0x0A, 0x1B, 0x3E)        # cover / closing background
+NAVY_CARD = RGBColor(0x1E, 0x2E, 0x54)   # cards / circles on the navy slides
+CARD_BG = RGBColor(0xF3, 0xF5, 0xF8)     # light-gray content cards on white
+GREEN = RGBColor(0x1E, 0x9E, 0x6A)       # positive / return accent
+MUTED = RGBColor(0x6B, 0x74, 0x86)       # muted labels/subtitles on white
+ICE = RGBColor(0xC6, 0xD3, 0xEA)         # muted subtitle on navy
+
 SLIDE_W = Inches(13.333)
 SLIDE_H = Inches(7.5)
 
 
 def _bg(slide, *, warm=False):
-    """Full-bleed RingCentral gradient as the backmost shape on the slide."""
-    pic = slide.shapes.add_picture(BG_WARM if warm else BG_LIGHT,
-                                   0, 0, SLIDE_W, SLIDE_H)
-    # Send the picture to the very back so all content renders on top of it.
+    """Flat full-bleed background: navy for cover/closing (warm=True), white otherwise.
+
+    Clean and minimal to match the approved decks — no gradient art. Navy slides
+    get the concentric corner-circle motif bled off the bottom-right.
+    """
+    fill = NAVY if warm else WHITE
+    rect = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, SLIDE_W, SLIDE_H)
+    rect.fill.solid(); rect.fill.fore_color.rgb = fill
+    rect.line.fill.background()
+    rect.shadow.inherit = False
+    # Send the rectangle to the very back so all content renders on top of it.
     spTree = slide.shapes._spTree
-    spTree.remove(pic._element)
-    spTree.insert(2, pic._element)
-    return pic
+    spTree.remove(rect._element)
+    spTree.insert(2, rect._element)
+    if warm:
+        _corner_circles(slide)
+    return rect
+
+
+def _corner_circles(slide):
+    """Two concentric circles bled off the bottom-right corner (navy motif)."""
+    big = slide.shapes.add_shape(MSO_SHAPE.OVAL, Inches(10.4), Inches(4.5),
+                                 Inches(4.2), Inches(4.2))
+    big.fill.solid(); big.fill.fore_color.rgb = NAVY_CARD
+    big.line.fill.background(); big.shadow.inherit = False
+    small = slide.shapes.add_shape(MSO_SHAPE.OVAL, Inches(12.5), Inches(6.5),
+                                   Inches(1.7), Inches(1.7))
+    small.fill.solid(); small.fill.fore_color.rgb = RC_ORANGE
+    small.line.fill.background(); small.shadow.inherit = False
 
 
 def _text(slide, text, left, top, width, height, *, size=14, bold=False,
@@ -138,19 +167,23 @@ def _circle(slide, left, top, dia, fill, text=None, *, text_color=WHITE, size=12
 
 
 def _logo(slide, *, warm=False):
-    # Official RingCentral wordmark: white on warm gradient, color on light.
-    slide.shapes.add_picture(LOGO_WHITE if warm else LOGO_COLOR,
-                             Inches(0.3), Inches(0.22), height=Inches(0.3))
+    # Text wordmark to match the approved decks: an orange dot + "Ring" (white on
+    # navy / dark on white) + "Central" (always orange). Crisp at any scale.
+    dot = slide.shapes.add_shape(MSO_SHAPE.OVAL, Inches(0.5), Inches(0.42),
+                                 Inches(0.16), Inches(0.16))
+    dot.fill.solid(); dot.fill.fore_color.rgb = RC_ORANGE
+    dot.line.fill.background(); dot.shadow.inherit = False
+    ring_col = WHITE if warm else RC_NAVY
+    _rich(slide, [[("Ring", {"bold": True, "size": 17, "color": ring_col, "font": FONT}),
+                   ("Central", {"bold": True, "size": 17, "color": RC_ORANGE, "font": FONT})]],
+          Inches(0.72), Inches(0.3), Inches(3.0), Inches(0.4), anchor=MSO_ANCHOR.MIDDLE)
 
 
 def _footer(slide, page=None, *, warm=False):
-    # Page number is stamped in a final pass (see _stamp_page_numbers); the
-    # optional `page` arg is ignored so adding/removing slides never desyncs.
-    col = WHITE if warm else GRAY
-    _text(slide, "Confidential", Inches(5.9), Inches(7.12), Inches(1.5), Inches(0.3),
-          size=8, color=col, align=PP_ALIGN.CENTER)
-    _text(slide, "©2026 RingCentral", Inches(11.0), Inches(7.12), Inches(1.9), Inches(0.3),
-          size=8, color=col, align=PP_ALIGN.RIGHT)
+    # Intentionally minimal — the approved decks carry only a page number
+    # (stamped in _stamp_page_numbers). Kept as a no-op so existing call sites
+    # stay valid without cluttering the clean layout.
+    return
 
 
 # Slides whose background is the warm gradient (white text), set during build.
@@ -165,20 +198,94 @@ def _stamp_page_numbers(prs):
 
 
 def _title_block(slide, title, subtitle, *, warm=False):
-    # Long titles wrap to a second line; shrink the size and push the subtitle
-    # down so the wrapped title never collides with it (a wider fallback font
-    # makes this worse, so size off character count, not measured width).
-    long = len(title) > 52
-    _text(slide, title, Inches(0.5), Inches(0.5), Inches(12.3), Inches(0.95),
-          size=22 if long else 28, bold=True, color=WHITE if warm else DARK, font=FONT)
-    _text(slide, subtitle, Inches(0.52), Inches(1.55) if long else Inches(1.32),
-          Inches(12.3), Inches(0.4),
-          size=12, italic=True, color=WHITE if warm else GRAY, font=FONT)
+    # Clean content-slide header: bold navy title (no underline), muted subtitle.
+    # Long titles wrap to a second line; size off character count, not measured
+    # width, so a wider fallback font never collides with the subtitle.
+    n = len(title)
+    if n > 56:
+        tsize = 22
+    elif n > 48:
+        tsize = 25
+    elif n > 40:
+        tsize = 28
+    else:
+        tsize = 30
+    _text(slide, title, Inches(0.5), Inches(0.98), Inches(12.4), Inches(0.6),
+          size=tsize, bold=True, color=WHITE if warm else RC_NAVY, font=FONT, wrap=False)
+    if subtitle:
+        _text(slide, subtitle, Inches(0.52), Inches(1.58),
+              Inches(12.4), Inches(0.4),
+              size=12.5, color=ICE if warm else MUTED, font=FONT, wrap=False)
+
+
+def _eyebrow(slide, text, x, y, *, color=RC_ORANGE):
+    """Small uppercase orange kicker above a hero headline."""
+    _text(slide, text.upper(), x, y, Inches(11.0), Inches(0.35),
+          size=13, bold=True, color=color, font=FONT)
+
+
+def _hero(slide, line1, line2, x, y, *, size=46, dark=True,
+          line2_color=RC_ORANGE):
+    """Two-line hero headline: line1 white/navy, line2 accent (orange)."""
+    c1 = WHITE if dark else RC_NAVY
+    _rich(slide,
+          [[(line1, {"bold": True, "size": size, "color": c1, "font": FONT})],
+           [(line2, {"bold": True, "size": size, "color": line2_color, "font": FONT})]],
+          x, y, Inches(11.5), Inches(2.0), line_spacing=1.0, space_after=0)
+
+
+def _stat_card(slide, x, y, w, h, big, label, *, big_color=RC_NAVY,
+               fill=CARD_BG, label_color=MUTED, big_size=44):
+    """Light card with a big colored number and a small muted label below."""
+    _rect(slide, x, y, w, h, fill, radius=True)
+    big_h = big_size / 58.0  # inches, approx cap height of the number
+    _text(slide, big, x + Inches(0.28), y + Inches(0.22), w - Inches(0.5), Inches(big_h),
+          size=big_size, bold=True, color=big_color, font=FONT, wrap=False)
+    _text(slide, label, x + Inches(0.3), y + Inches(0.22 + big_h + 0.06), w - Inches(0.55), Inches(0.7),
+          size=12, color=label_color, font=FONT, line_spacing=1.0)
+
+
+def _punch(slide, segments, y=Inches(6.15), *, h=Inches(0.85), fill=NAVY):
+    """Full-width navy 'punchline' band with rich centered text."""
+    _rect(slide, Inches(0.5), y, Inches(12.33), h, fill, radius=True)
+    _rich(slide, [segments], Inches(0.95), y, Inches(11.5), h,
+          anchor=MSO_ANCHOR.MIDDLE, align=PP_ALIGN.LEFT)
+
+
+def _bullet_card(slide, x, y, w, h, head, body):
+    """Light card with an orange bullet dot, bold navy header, muted body."""
+    _rect(slide, x, y, w, h, CARD_BG, radius=True)
+    dot = slide.shapes.add_shape(MSO_SHAPE.OVAL, x + Inches(0.3), y + Inches(0.34),
+                                 Inches(0.16), Inches(0.16))
+    dot.fill.solid(); dot.fill.fore_color.rgb = RC_ORANGE
+    dot.line.fill.background(); dot.shadow.inherit = False
+    _text(slide, head, x + Inches(0.6), y + Inches(0.22), w - Inches(0.85), Inches(0.45),
+          size=15, bold=True, color=RC_NAVY, font=FONT)
+    _text(slide, body, x + Inches(0.6), y + Inches(0.72), w - Inches(0.85), h - Inches(0.9),
+          size=11.5, color=MUTED, font=FONT, line_spacing=1.05)
 
 
 # ---------------------------------------------------------------------------
-# Slide 1 — methodology credibility
+# Slide 1 — cover (navy)
 # ---------------------------------------------------------------------------
+
+def _slide_cover(prs, r: PipelineResult, ctx, ae_name):
+    s = prs.slides.add_slide(prs.slide_layouts[6])
+    _bg(s, warm=True)
+    _WARM_SLIDES.add(len(prs.slides))
+    _logo(s, warm=True)
+    customer = ctx.get("customer", "your business")
+    _eyebrow(s, f"Prepared for {customer}  ·  Business case", Inches(0.5), Inches(2.55))
+    _hero(s, "The revenue hiding in", "your missed calls.", Inches(0.5), Inches(3.05),
+          size=48, dark=True)
+    _text(s, f"RingCentral Performance Reports  ·  {r.reporting_period}  ·  "
+             "every figure derived from your own call data.",
+          Inches(0.52), Inches(5.35), Inches(11.0), Inches(0.5),
+          size=14, color=ICE, font=FONT)
+    if ae_name:
+        _text(s, f"Prepared by {ae_name}", Inches(0.52), Inches(6.7), Inches(8.0), Inches(0.35),
+              size=11, color=RGBColor(0x8A, 0x93, 0xA5), font=FONT)
+
 
 # ---------------------------------------------------------------------------
 # Slide 2 — missed-call summary
@@ -188,93 +295,54 @@ def _slide2(prs, r: PipelineResult, ctx, narr, sales_queue_calls):
     s = prs.slides.add_slide(prs.slide_layouts[6])
     _bg(s)
     _logo(s)
-    _title_block(s, narr.get("title", f"{r.total_missed:,} genuine missed calls across customer-facing queues"),
-                 narr.get("subtitle", ""))
+    _title_block(s, narr.get("title", "We miss a lot of calls — and every miss is a lost order"),
+                 narr.get("subtitle",
+                          f"Customer-facing queues · {r.reporting_period} · session-deduplicated · spam-filtered"))
 
-    # Left big-stat card
-    lx, ly, lw, lh = Inches(0.5), Inches(1.95), Inches(3.25), Inches(4.7)
-    _rect(s, lx, ly, lw, lh, WHITE, line=CARD_BORDER, radius=True)
-    _text(s, "GENUINE MISSED\nCALLS — CUSTOMER QUEUES", lx + Inches(0.25), ly + Inches(0.55),
-          lw - Inches(0.5), Inches(0.7), size=12, bold=True, color=GRAY, font=FONT)
-    # Size the headline number to the digit count so 5- and 6-figure totals
-    # both fit on ONE line in the ~2.95in card (72pt overflowed and wrapped).
-    _big_n = f"{r.total_missed:,}"
-    # Tier the headline size to digit-count so it fits on ONE line even when a
-    # WIDER fallback font is substituted (Inter Tight may be absent on the
-    # rendering machine). Sizes chosen to fit the ~2.95in card with margin.
-    _nlen = len(_big_n)
-    _big_size = 66 if _nlen <= 4 else 54 if _nlen == 5 else 46 if _nlen == 6 else 38
-    _text(s, _big_n, lx + Inches(0.1), ly + Inches(1.3), lw - Inches(0.2), Inches(1.2),
-          size=_big_size, bold=True, color=RC_RED, font=FONT, wrap=False,
-          align=PP_ALIGN.CENTER)
-    _rich(s, [[(f"{r.miss_rate*100:.1f}%", {"bold": True, "size": 13, "color": DARK}),
-               (f" of {r.universe_sessions:,} inbound sessions went unanswered",
-                {"size": 13, "color": DARK})]],
-          lx + Inches(0.25), ly + Inches(2.35), lw - Inches(0.45), Inches(0.7))
-    _rect(s, lx + Inches(0.25), ly + Inches(3.05), lw - Inches(0.5), Pt(1), CARD_BORDER)
-    _text(s, f"≈ {round(r.misses_per_day)} missed calls every day",
-          lx + Inches(0.25), ly + Inches(3.15), lw - Inches(0.5), Inches(0.4),
-          size=13, bold=True, italic=True, color=RC_ORANGE, align=PP_ALIGN.CENTER)
-    _rich(s, [[(f"{sales_queue_calls:,}", {"bold": True, "size": 13, "color": RC_RED}),
-               (" are revenue-line calls\n(sales · orders · bookings)", {"size": 12, "color": DARK})]],
-          lx + Inches(0.25), ly + Inches(3.7), lw - Inches(0.5), Inches(0.8),
-          align=PP_ALIGN.CENTER)
+    # Top row — three big-number stat cards.
+    cy, cw, ch, gap = Inches(2.15), Inches(3.95), Inches(1.75), Inches(0.24)
+    cx = Inches(0.5)
+    stats = [
+        (f"{r.total_missed:,}", "genuine missed calls\ncustomer-facing queues", RC_RED),
+        (f"{r.miss_rate*100:.0f}%", f"of {r.universe_sessions:,} inbound\nsessions went unanswered", RC_NAVY),
+        (f"{sales_queue_calls:,}", "are revenue-line calls\nsales · orders · bookings", RC_ORANGE),
+    ]
+    for big, label, col in stats:
+        _stat_card(s, cx, cy, cw, ch, big, label, big_color=col, big_size=42)
+        cx = Emu(int(cx) + int(cw) + int(gap))
 
-    # Middle: chart + breakdown
-    mx = Inches(4.0)
-    _text(s, f"{round(r.business_hours_miss_pct*100)}% of misses hit during staffed hours — peak overflow, "
-             f"when every agent is already on a call",
-          mx, Inches(1.95), Inches(4.6), Inches(0.5), size=11, bold=True, color=DARK, font=FONT, line_spacing=1.0)
-    _hourly_chart(s, r, mx, Inches(2.35), Inches(4.55), Inches(1.85))
+    # Middle-left: hourly chart with the staffed-hours framing as its caption.
+    mx, mw = Inches(0.5), Inches(6.1)
+    _text(s, f"{round(r.business_hours_miss_pct*100)}% of misses hit during staffed hours — "
+             "peak overflow, when every agent is already on a call.",
+          mx, Inches(4.15), mw, Inches(0.5), size=12, bold=True, color=RC_NAVY, font=FONT, line_spacing=1.0)
+    _hourly_chart(s, r, mx, Inches(4.7), mw, Inches(1.75))
 
-    _text(s, "How they were missed:", mx, Inches(4.35), Inches(4.6), Inches(0.3),
-          size=12, bold=True, color=DARK, font=FONT)
-    # The two dispositions of a genuine missed call — these sum to total_missed
-    # exactly (rang-out + voicemail). "Abandoned in queue" is a DIFFERENT measure
-    # (from the Queues report), not a third slice, so it's shown separately below
-    # rather than inside this breakdown (which would push the total past 100%).
+    # Middle-right: how the misses split (rang-out + voicemail = total exactly).
     qr = r.queues_report
     abandoned_n = qr.abandoned if (qr and qr.abandoned) else r.abandoned
+    rx, rw = Inches(6.95), Inches(5.9)
+    _text(s, "How they were missed", rx, Inches(4.15), rw, Inches(0.3),
+          size=12, bold=True, color=RC_NAVY, font=FONT)
     bd = [
-        (r.missed, "Rang out — no answer", RC_PURPLE, RGBColor(0xF0,0xEC,0xF7)),
-        (r.voicemail_total, "Went to voicemail (left msg)", RC_GOLD, RGBColor(0xFB,0xF3,0xE0)),
+        (r.missed, "Rang out — no answer"),
+        (r.voicemail_total, "Went to voicemail (left message)"),
     ]
-    by = Inches(4.7)
-    for val, lbl, col, bg in bd:
-        _rect(s, mx, by, Inches(4.55), Inches(0.55), bg, radius=True)
+    by = Inches(4.65)
+    for val, lbl in bd:
+        _rect(s, rx, by, rw, Inches(0.62), CARD_BG, radius=True)
         pct = _pct(val, r.total_missed)
-        _rich(s, [[(f"{val:,}  ", {"bold": True, "size": 15, "color": col}),
-                   (f"{pct}  ", {"bold": True, "size": 11, "color": col}),
-                   (lbl, {"size": 11, "color": DARK})]],
-              mx + Inches(0.2), by, Inches(4.3), Inches(0.55), anchor=MSO_ANCHOR.MIDDLE)
-        by += Inches(0.68)
+        _rich(s, [[(f"{val:,}  ", {"bold": True, "size": 16, "color": RC_ORANGE}),
+                   (f"{pct}   ", {"bold": True, "size": 12, "color": MUTED}),
+                   (lbl, {"size": 12, "color": RC_NAVY})]],
+              rx + Inches(0.25), by, rw - Inches(0.5), Inches(0.62), anchor=MSO_ANCHOR.MIDDLE)
+        by += Inches(0.74)
     if abandoned_n:
-        _text(s, f"Separately, the Queues report shows {abandoned_n:,} callers abandoned in queue "
-                 f"before reaching anyone — a distinct measure, not part of the split above.",
-              mx, by + Inches(0.02), Inches(4.6), Inches(0.55), size=9.5, italic=True, color=RC_RED)
-    else:
-        _text(s, f"{r.repeat_callers} callers tried 2+ times and never got through — intent, not spam.",
-              mx, by + Inches(0.02), Inches(4.6), Inches(0.5), size=10, italic=True, color=RC_RED)
+        _text(s, f"Separately, {abandoned_n:,} callers abandoned in queue before reaching anyone — "
+                 "a distinct measure, not part of the split above.",
+              rx, by + Inches(0.02), rw, Inches(0.55), size=10, italic=True, color=MUTED)
 
-    # Right: worst-hit queues table. Prefer the Queues report (real per-queue
-    # abandoned); the Calls export collapses all abandoned calls into "Unknown",
-    # which hides which sales/customer-facing queues actually lost the calls.
-    rx = Inches(8.85)
-    if qr and qr.queues:
-        _text(s, "Worst-hit queues — by abandoned", rx, Inches(1.95), Inches(4.0), Inches(0.35),
-              size=14, bold=True, color=DARK, font=FONT)
-        worst = sorted((q for q in qr.queues if (q.tier or "C") != "D"),
-                       key=lambda q: q.abandoned, reverse=True)[:10]
-        _worst_table_qr(s, worst, rx, Inches(2.35), Inches(3.95))
-        if any(getattr(q, "answered", None) == 0 and q.inbound > 0 for q in worst):
-            _text(s, "† unstaffed queue — 0 agents ever answered; a routing/staffing fix (see slide 5), not a data error.",
-                  rx, Inches(5.95), Inches(4.0), Inches(0.6), size=8, italic=True, color=GRAY)
-    else:
-        _text(s, "Worst-hit queues", rx, Inches(1.95), Inches(4.0), Inches(0.35),
-              size=14, bold=True, color=DARK, font=FONT)
-        worst = sorted(r.queue_stats.values(), key=lambda q: q.total_missed, reverse=True)[:10]
-        _worst_table(s, worst, rx, Inches(2.35), Inches(3.95))
-    _footer(s, 2)
+    _footer(s)
 
 
 def _worst_table_qr(s, queues, x, y, w):
@@ -383,9 +451,9 @@ def _slide_hourly(prs, r: PipelineResult, ctx, narr):
                  narr.get("subtitle", ""))
 
     # Big miss-rate column chart (left)
-    _miss_rate_chart(s, r, Inches(0.5), Inches(2.05), Inches(8.0), Inches(4.55))
+    _miss_rate_chart(s, r, Inches(0.5), Inches(2.15), Inches(8.0), Inches(4.35))
 
-    # Three callout cards (right)
+    # Three callout stat cards (right)
     cx, cw = Inches(8.85), Inches(3.98)
     cards = [
         (_range_or_pct(r.after_hours_miss_lo, r.after_hours_miss_hi, r.after_hours_miss_rate),
@@ -395,19 +463,15 @@ def _slide_hourly(prs, r: PipelineResult, ctx, narr):
         (f"~{round(r.midday_miss_rate*100)}%",
          "missed even during peak midday hours"),
     ]
-    cy = Inches(2.05); ch = Inches(1.32); gap = Inches(0.2)
+    cy = Inches(2.15); ch = Inches(1.4); gap = Inches(0.18)
     for big, label in cards:
-        _rect(s, cx, cy, cw, ch, LIGHT, radius=True)
-        _text(s, big, cx + Inches(0.3), cy + Inches(0.16), cw - Inches(0.6), Inches(0.6),
-              size=30, bold=True, color=RC_ORANGE, font=FONT)
-        _text(s, label, cx + Inches(0.3), cy + Inches(0.78), cw - Inches(0.6), Inches(0.45),
-              size=12, color=GRAY)
+        _stat_card(s, cx, cy, cw, ch, big, label, big_color=RC_ORANGE, big_size=34)
         cy = Emu(int(cy) + int(ch) + int(gap))
 
-    _text(s, "AIR answers instantly — every hour, every day.",
-          cx, cy + Inches(0.05), cw, Inches(0.4),
-          size=13, bold=True, italic=True, color=RC_BLUE)
-    _footer(s, 3)
+    _punch(s, [("AIR answers instantly — ", {"bold": True, "size": 15, "color": WHITE, "font": FONT}),
+               ("every hour, every day.", {"size": 15, "color": ICE, "font": FONT})],
+           y=Inches(6.75), h=Inches(0.55))
+    _footer(s)
 
 
 def _miss_rate_chart(s, r, x, y, w, h):
@@ -465,39 +529,39 @@ def _slide3(prs, r: PipelineResult, ctx, narr):
     # Two stacked stat cards on the left
     lx, lw = Inches(0.5), Inches(4.15)
     # Card A — abandoned callers
-    ay, ah = Inches(1.95), Inches(2.25)
-    _rect(s, lx, ay, lw, ah, WHITE, line=CARD_BORDER, radius=True)
-    _text(s, "CALLERS WHO WAITED,\nTHEN HUNG UP", lx + Inches(0.25), ay + Inches(0.22),
-          lw - Inches(0.5), Inches(0.6), size=12, bold=True, color=GRAY, font=FONT)
-    _text(s, f"{abandoned_n:,}", lx + Inches(0.2), ay + Inches(0.78), lw - Inches(0.3), Inches(1.0),
-          size=58, bold=True, color=RC_RED, font=FONT)
-    _rich(s, [[(f"{abandon_rate*100:.1f}%", {"bold": True, "size": 12, "color": DARK}),
-               (" of queue calls were abandoned while waiting", {"size": 12, "color": GRAY})]],
-          lx + Inches(0.25), ay + Inches(1.78), lw - Inches(0.5), Inches(0.4))
+    ay, ah = Inches(2.15), Inches(2.15)
+    _rect(s, lx, ay, lw, ah, CARD_BG, radius=True)
+    _text(s, "CALLERS WHO WAITED,\nTHEN HUNG UP", lx + Inches(0.28), ay + Inches(0.22),
+          lw - Inches(0.5), Inches(0.6), size=11.5, bold=True, color=MUTED, font=FONT)
+    _text(s, f"{abandoned_n:,}", lx + Inches(0.24), ay + Inches(0.74), lw - Inches(0.3), Inches(1.0),
+          size=54, bold=True, color=RC_RED, font=FONT, wrap=False)
+    _rich(s, [[(f"{abandon_rate*100:.1f}%", {"bold": True, "size": 12, "color": RC_NAVY}),
+               (" of queue calls were abandoned while waiting", {"size": 12, "color": MUTED})]],
+          lx + Inches(0.28), ay + Inches(1.66), lw - Inches(0.5), Inches(0.4))
 
     # Card B — answered under 60s
-    by, bh = Inches(4.4), Inches(2.25)
-    _rect(s, lx, by, lw, bh, WHITE, line=CARD_BORDER, radius=True)
-    _text(s, "ANSWERED CALLS UNDER\n60 SECONDS", lx + Inches(0.25), by + Inches(0.22),
-          lw - Inches(0.5), Inches(0.6), size=12, bold=True, color=GRAY, font=FONT)
-    _text(s, f"{r.answered_under_60:,}", lx + Inches(0.2), by + Inches(0.78), lw - Inches(0.3), Inches(1.0),
-          size=58, bold=True, color=RC_ORANGE, font=FONT)
-    _rich(s, [[(f"{r.under_60_pct*100:.0f}%", {"bold": True, "size": 12, "color": DARK}),
-               (" of answered calls ran under 60s — an indicator of routine volume an AI receptionist could handle", {"size": 11, "color": GRAY})]],
-          lx + Inches(0.25), by + Inches(1.72), lw - Inches(0.5), Inches(0.5))
+    by, bh = Inches(4.55), Inches(2.15)
+    _rect(s, lx, by, lw, bh, CARD_BG, radius=True)
+    _text(s, "ANSWERED CALLS UNDER\n60 SECONDS", lx + Inches(0.28), by + Inches(0.22),
+          lw - Inches(0.5), Inches(0.6), size=11.5, bold=True, color=MUTED, font=FONT)
+    _text(s, f"{r.answered_under_60:,}", lx + Inches(0.24), by + Inches(0.74), lw - Inches(0.3), Inches(1.0),
+          size=54, bold=True, color=RC_ORANGE, font=FONT, wrap=False)
+    _rich(s, [[(f"{r.under_60_pct*100:.0f}%", {"bold": True, "size": 12, "color": RC_NAVY}),
+               (" of answered calls ran under 60s — routine volume an AI receptionist could handle", {"size": 11, "color": MUTED})]],
+          lx + Inches(0.28), by + Inches(1.6), lw - Inches(0.5), Inches(0.5))
 
     # Right — most-abandoned queues table (from the Queues report when present)
     rx = Inches(5.0)
-    _text(s, "Where callers give up — most-abandoned queues", rx, Inches(1.95),
-          Inches(7.8), Inches(0.35), size=14, bold=True, color=DARK, font=FONT)
+    _text(s, "Where callers give up — most-abandoned queues", rx, Inches(2.15),
+          Inches(7.8), Inches(0.35), size=14, bold=True, color=RC_NAVY, font=FONT)
 
     if qr and qr.queues:
         top_ab = sorted((q for q in qr.queues if q.abandoned > 0 and q.tier != "D"),
-                        key=lambda q: q.abandoned, reverse=True)[:11]
-        _abandon_table_qr(s, top_ab, rx, Inches(2.4), Inches(7.85))
+                        key=lambda q: q.abandoned, reverse=True)[:10]
+        _abandon_table_qr(s, top_ab, rx, Inches(2.55), Inches(7.85))
         if any(getattr(q, "answered", None) == 0 and q.inbound > 0 for q in top_ab):
-            _text(s, "† unstaffed queue — 0 agents ever answered (a routing/staffing fix, see slide 5), not a data error.",
-                  rx, Inches(6.05), Inches(7.85), Inches(0.3), size=8, italic=True, color=GRAY)
+            _text(s, "† unstaffed queue — 0 agents ever answered (a routing/staffing fix), not a data error.",
+                  rx, Inches(6.02), Inches(7.85), Inches(0.3), size=8, italic=True, color=MUTED)
         # Wait-time / SLA context strip
         bits = []
         if qr.avg_wait:
@@ -511,21 +575,20 @@ def _slide3(prs, r: PipelineResult, ctx, narr):
             for i, (label, val) in enumerate(bits):
                 if i:
                     segs.append(("    ·    ", {"size": 11, "color": CARD_BORDER}))
-                segs.append((label, {"size": 11, "color": GRAY}))
+                segs.append((label, {"size": 11, "color": MUTED}))
                 segs.append((val, {"size": 11, "bold": True, "color": RC_RED}))
-            _rich(s, [segs], rx, Inches(6.35), Inches(7.85), Inches(0.35))
+            _rich(s, [segs], rx, Inches(6.32), Inches(7.85), Inches(0.35))
     else:
         top_ab = sorted((q for q in r.queue_stats.values() if q.abandoned_total > 0),
-                        key=lambda q: q.abandoned_total, reverse=True)[:12]
-        _abandon_table(s, top_ab, rx, Inches(2.4), Inches(7.85))
+                        key=lambda q: q.abandoned_total, reverse=True)[:10]
+        _abandon_table(s, top_ab, rx, Inches(2.55), Inches(7.85))
 
     # Takeaway strip
-    _rect(s, Inches(0.5), Inches(6.85), Inches(12.33), Pt(0.5), CARD_BORDER)
     _text(s, "AI Receptionist answers instantly — recovering abandoned callers and taking many "
              "short, routine calls so staff focus on revenue conversations.",
-          Inches(0.5), Inches(6.92), Inches(12.3), Inches(0.4),
-          size=11, italic=True, color=RC_BLUE, align=PP_ALIGN.CENTER)
-    _footer(s, 4)
+          Inches(0.5), Inches(6.95), Inches(12.3), Inches(0.4),
+          size=11.5, italic=True, color=RC_NAVY, align=PP_ALIGN.CENTER)
+    _footer(s)
 
 
 def _abandon_table(s, queues, x, y, w):
@@ -666,36 +729,36 @@ def _slide_config_vs_air(prs, r: PipelineResult, ctx, narr):
     after_hours = split["after"] if split else 0
 
     # Three flow cards: total -> config-fixable -> structural (AIR)
-    cy, ch = Inches(2.05), Inches(2.75)
+    cy, ch = Inches(2.4), Inches(2.9)
     cards = [
-        (Inches(0.5), Inches(3.55), WHITE, CARD_BORDER, DARK, GRAY,
-         "TOTAL GENUINE MISSED", f"{total:,}", "customer-facing queues · spam-filtered · de-duplicated",
+        (Inches(0.5), Inches(3.55), CARD_BG, RC_NAVY, MUTED,
+         "TOTAL GENUINE MISSED", f"{total:,}", "customer-facing · spam-filtered · de-duplicated",
          "Every inbound call that never reached a person."),
-        (Inches(4.78), Inches(3.55), RGBColor(0xFB,0xF3,0xE0), RC_GOLD, RC_GOLD, GRAY,
+        (Inches(4.78), Inches(3.55), RGBColor(0xFB,0xF3,0xE0), RC_GOLD, MUTED,
          "CONFIG-FIXABLE (PRO SERVICES)", f"{config_fixable:,}",
          f"{len(unstaffed)} unstaffed queue{'s' if len(unstaffed)!=1 else ''} · 0 agents ever answered",
          "Routing/staffing fix — no new licenses required."),
-        (Inches(9.06), Inches(3.77), RGBColor(0xFC,0xEC,0xEC), RC_RED, RC_RED, GRAY,
+        (Inches(9.06), Inches(3.77), RGBColor(0xFC,0xEC,0xEC), RC_RED, MUTED,
          "STRUCTURAL GAP — NEEDS ALWAYS-ON COVERAGE", f"{structural:,}",
          "Calls arriving when staff are busy, after hours, or at peak",
          "No routing rule answers a call when no human is free."),
     ]
-    for x, w, bg, border, numcol, subcol, head, big, sub, foot in cards:
-        _rect(s, x, cy, w, ch, bg, line=border, line_w=Pt(1.25), radius=True)
-        _text(s, head, x + Inches(0.22), cy + Inches(0.2), w - Inches(0.4), Inches(0.5),
-              size=11, bold=True, color=numcol, font=FONT)
-        _text(s, big, x + Inches(0.18), cy + Inches(0.72), w - Inches(0.3), Inches(1.0),
-              size=46, bold=True, color=numcol, font=FONT, wrap=False)
-        _text(s, sub, x + Inches(0.22), cy + Inches(1.82), w - Inches(0.4), Inches(0.5),
-              size=10.5, bold=True, color=DARK, font=FONT)
-        _text(s, foot, x + Inches(0.22), cy + Inches(2.25), w - Inches(0.4), Inches(0.45),
+    for x, w, bg, numcol, subcol, head, big, sub, foot in cards:
+        _rect(s, x, cy, w, ch, bg, radius=True)
+        _text(s, head, x + Inches(0.24), cy + Inches(0.22), w - Inches(0.44), Inches(0.5),
+              size=10.5, bold=True, color=numcol, font=FONT)
+        _text(s, big, x + Inches(0.2), cy + Inches(0.74), w - Inches(0.3), Inches(1.0),
+              size=44, bold=True, color=numcol, font=FONT, wrap=False)
+        _text(s, sub, x + Inches(0.24), cy + Inches(1.9), w - Inches(0.44), Inches(0.5),
+              size=10.5, bold=True, color=RC_NAVY, font=FONT)
+        _text(s, foot, x + Inches(0.24), cy + Inches(2.35), w - Inches(0.44), Inches(0.45),
               size=10, italic=True, color=subcol)
 
     # Minus / equals connectors between the cards
-    _text(s, "−", Inches(4.18), cy + Inches(0.95), Inches(0.6), Inches(0.8),
-          size=34, bold=True, color=GRAY, align=PP_ALIGN.CENTER)
-    _text(s, "=", Inches(8.46), cy + Inches(0.95), Inches(0.6), Inches(0.8),
-          size=34, bold=True, color=GRAY, align=PP_ALIGN.CENTER)
+    _text(s, "−", Inches(4.18), cy + Inches(1.0), Inches(0.6), Inches(0.8),
+          size=34, bold=True, color=RC_ORANGE, align=PP_ALIGN.CENTER)
+    _text(s, "=", Inches(8.46), cy + Inches(1.0), Inches(0.6), Inches(0.8),
+          size=34, bold=True, color=RC_ORANGE, align=PP_ALIGN.CENTER)
 
     # Unstaffed-queue detail line under the middle card
     if unstaffed:
@@ -703,23 +766,20 @@ def _slide_config_vs_air(prs, r: PipelineResult, ctx, narr):
         _text(s, f"Unstaffed: {names}", Inches(4.78), cy + ch + Inches(0.05),
               Inches(4.0), Inches(0.5), size=8.5, italic=True, color=RC_GOLD)
 
-    # Bottom emphasis bar — the after-hours floor config literally cannot touch
-    by = Inches(5.95)
-    _rect(s, Inches(0.5), by, Inches(12.33), Inches(0.85), RGBColor(0xFC,0xEC,0xEC),
-          line=RC_RED, line_w=Pt(1), radius=True)
+    # Bottom emphasis band — the after-hours floor config literally cannot touch
     if split and after_hours:
         ah_pct = round(after_hours / split["total"] * 100) if split["total"] else 0
-        _rich(s, [[(f"{after_hours:,} ", {"bold": True, "size": 16, "color": RC_RED}),
+        _punch(s, [(f"{after_hours:,} ", {"bold": True, "size": 17, "color": RC_ORANGE, "font": FONT}),
                    (f"of the missed calls ({ah_pct}%) arrive entirely after hours — when no one is "
-                    "scheduled. ", {"size": 12, "color": DARK}),
+                    "scheduled. ", {"size": 12.5, "color": ICE, "font": FONT}),
                    ("Configuration cannot recover a single one; only always-on coverage can.",
-                    {"size": 12, "bold": True, "color": RC_RED})]],
-              Inches(0.75), by, Inches(11.8), Inches(0.85), anchor=MSO_ANCHOR.MIDDLE)
+                    {"size": 12.5, "bold": True, "color": WHITE, "font": FONT})],
+              y=Inches(6.05))
     else:
-        _rich(s, [[("Even with perfectly tuned routing, the structural gap above remains — "
+        _punch(s, [("Even with perfectly tuned routing, the structural gap above remains — "
                     "it is answered only by always-on coverage, not by reconfiguring queues.",
-                    {"size": 12, "bold": True, "color": RC_RED})]],
-              Inches(0.75), by, Inches(11.8), Inches(0.85), anchor=MSO_ANCHOR.MIDDLE)
+                    {"size": 13, "bold": True, "color": WHITE, "font": FONT})],
+              y=Inches(6.05))
     _footer(s)
 
 
@@ -765,55 +825,58 @@ def _slide_call_reasons(prs, r: PipelineResult, ctx, narr):
     # lines of business, one-line summary), each capped to a single non-wrapping
     # row. The old side-by-side layout collided when the summary wrapped over the
     # lines-of-business list.
-    by = Inches(1.8)
-    _rect(s, Inches(0.5), by, Inches(12.33), Inches(1.05), LIGHT, line=CARD_BORDER, radius=True)
+    by = Inches(2.0)
+    _rect(s, Inches(0.5), by, Inches(12.33), Inches(1.05), CARD_BG, radius=True)
     industry = (biz.get("industry") or "").strip()
     lobs = biz.get("lines_of_business") or []
     head = industry if industry else "Business profile"
-    _text(s, head, Inches(0.8), by + Inches(0.12), Inches(11.6), Inches(0.32),
-          size=13, bold=True, color=RC_BLUE, font=FONT, wrap=False)
+    _text(s, head, Inches(0.8), by + Inches(0.14), Inches(11.6), Inches(0.32),
+          size=13, bold=True, color=RC_NAVY, font=FONT, wrap=False)
     if lobs:
         lob_line = " · ".join(str(x) for x in lobs[:6])
         if len(lob_line) > 140:
             lob_line = lob_line[:138].rstrip(" ·") + "…"
-        _text(s, lob_line, Inches(0.8), by + Inches(0.46), Inches(11.7), Inches(0.3),
-              size=9.5, color=GRAY, font=FONT, wrap=False)
+        _text(s, lob_line, Inches(0.8), by + Inches(0.48), Inches(11.7), Inches(0.3),
+              size=9.5, color=MUTED, font=FONT, wrap=False)
     if summary:
         s_line = summary if len(summary) <= 150 else summary[:148].rstrip() + "…"
-        _text(s, s_line, Inches(0.8), by + Inches(0.74), Inches(11.7), Inches(0.28),
-              size=9.5, italic=True, color=DARK, font=FONT, wrap=False)
+        _text(s, s_line, Inches(0.8), by + Inches(0.76), Inches(11.7), Inches(0.28),
+              size=9.5, italic=True, color=RC_NAVY, font=FONT, wrap=False)
 
-    # Predicted call-reason cards (up to 6)
+    # Predicted call-reason cards (up to 6) — light cards, orange bullet dot,
+    # bold navy reason, tier badge pill, muted "why".
     reasons = (biz.get("predicted_call_reasons") or [])[:6]
-    cw, chh = Inches(4.05), Inches(1.55)
+    cw, chh = Inches(4.05), Inches(1.5)
     xs = [Inches(0.5), Inches(4.68), Inches(8.86)]
-    ys = [Inches(3.1), Inches(4.85)]
+    ys = [Inches(3.35), Inches(5.0)]
     for idx, item in enumerate(reasons):
         cx = xs[idx % 3]; cy = ys[idx // 3]
         tier = str(item.get("tier", "C")).upper()[:1]
         col, bg, tlabel = _TIER_BADGE.get(tier, _TIER_BADGE["C"])
-        _rect(s, cx, cy, cw, chh, WHITE, line=CARD_BORDER, radius=True)
-        _rect(s, cx, cy, Inches(0.12), chh, col)
-        _text(s, str(item.get("reason", ""))[:48], cx + Inches(0.32), cy + Inches(0.18),
-              cw - Inches(1.6), Inches(0.55), size=14, bold=True, color=RC_BLUE, font=FONT)
+        _rect(s, cx, cy, cw, chh, CARD_BG, radius=True)
+        dot = s.shapes.add_shape(MSO_SHAPE.OVAL, cx + Inches(0.28), cy + Inches(0.3),
+                                 Inches(0.15), Inches(0.15))
+        dot.fill.solid(); dot.fill.fore_color.rgb = RC_ORANGE
+        dot.line.fill.background(); dot.shadow.inherit = False
+        _text(s, str(item.get("reason", ""))[:44], cx + Inches(0.56), cy + Inches(0.18),
+              cw - Inches(1.75), Inches(0.55), size=14, bold=True, color=RC_NAVY, font=FONT)
         # tier badge
         bw = Inches(1.15)
         _rect(s, cx + cw - bw - Inches(0.18), cy + Inches(0.2), bw, Inches(0.34), bg, radius=True)
         _text(s, tlabel, cx + cw - bw - Inches(0.18), cy + Inches(0.225), bw, Inches(0.3),
               size=9, bold=True, color=col, align=PP_ALIGN.CENTER, font=FONT)
-        _text(s, str(item.get("why", ""))[:120], cx + Inches(0.32), cy + Inches(0.8),
-              cw - Inches(0.55), Inches(0.7), size=11, color=GRAY, line_spacing=1.05)
-        # Only badge revenue-relevant on genuine revenue-line cards (tier A/B), so the
-        # marker stays meaningful instead of appearing on General/Internal reasons too.
+        _text(s, str(item.get("why", ""))[:120], cx + Inches(0.3), cy + Inches(0.78),
+              cw - Inches(0.55), Inches(0.66), size=11, color=MUTED, line_spacing=1.05)
+        # Only badge revenue-relevant on genuine revenue-line cards (tier A/B).
         if item.get("revenue_relevant") and tier in ("A", "B"):
-            _text(s, "● revenue-relevant", cx + Inches(0.32), cy + chh - Inches(0.32),
-                  cw - Inches(0.55), Inches(0.28), size=9, bold=True, color=RC_ORANGE)
+            _text(s, "● revenue-relevant", cx + Inches(0.3), cy + chh - Inches(0.3),
+                  cw - Inches(0.55), Inches(0.26), size=9, bold=True, color=RC_ORANGE)
 
     _text(s, "Caller types inferred from public website content — illustrative, not a claim about your call logs. "
-             "The point: these are routine, answerable calls — the same kind that show up later in your RingCentral "
+             "The point: these are routine, answerable calls — the same kind that later show up in your RingCentral "
              "data as abandoned and sub-60-second calls.",
-          Inches(0.5), Inches(6.7), Inches(12.33), Inches(0.5),
-          size=10, italic=True, color=GRAY, align=PP_ALIGN.CENTER)
+          Inches(0.5), Inches(6.75), Inches(12.33), Inches(0.5),
+          size=10, italic=True, color=MUTED, align=PP_ALIGN.CENTER)
     _footer(s)
 
 
@@ -920,26 +983,26 @@ def _slide_revenue(prs, r: PipelineResult, ctx, narr):
                           f"{ctx.get('reporting_period','')} run-rate · illustrative, using your own order value"))
 
     # Funnel strip — pool is the REVENUE-LINE missed calls, never total volume.
-    fy = Inches(1.95)
+    fy = Inches(2.2)
     steps = [
-        (f"{round(rev_month):,}", "revenue-line missed / month", RC_RED),
-        (f"{round(rev_year):,}", "revenue-line missed / year", RC_GOLD),
-        ("× capture %", "booked as orders", RC_BLUE),
-        ("= recovered $", "added revenue", RC_ORANGE),
+        (f"{round(rev_month):,}", "revenue-line missed / month", RC_NAVY, CARD_BG, MUTED),
+        (f"{round(rev_year):,}", "revenue-line missed / year", RC_NAVY, CARD_BG, MUTED),
+        ("× capture %", "booked as orders", RC_NAVY, CARD_BG, MUTED),
+        ("= recovered $", "added revenue", WHITE, RC_ORANGE, ICE),
     ]
     sw = Inches(3.0); sx = Inches(0.5)
-    for big, lab, col in steps:
-        _rect(s, sx, fy, sw, Inches(0.95), WHITE, line=CARD_BORDER, radius=True)
-        _text(s, big, sx + Inches(0.2), fy + Inches(0.12), sw - Inches(0.4), Inches(0.5),
-              size=24, bold=True, color=col, font=FONT)
-        _text(s, lab, sx + Inches(0.2), fy + Inches(0.62), sw - Inches(0.4), Inches(0.3),
-              size=11, color=GRAY)
+    for big, lab, col, fill, labcol in steps:
+        _rect(s, sx, fy, sw, Inches(1.0), fill, radius=True)
+        _text(s, big, sx + Inches(0.2), fy + Inches(0.16), sw - Inches(0.4), Inches(0.5),
+              size=24, bold=True, color=col, font=FONT, wrap=False)
+        _text(s, lab, sx + Inches(0.2), fy + Inches(0.66), sw - Inches(0.4), Inches(0.3),
+              size=11, color=labcol, font=FONT)
         sx = Emu(int(sx) + int(sw) + int(Inches(0.11)))
 
     # Recovered-revenue table by capture rate (revenue-line pool only)
     _text(s, "Annual recovered revenue — revenue-line missed calls only, by capture rate",
-          Inches(0.5), Inches(3.25), Inches(12.3), Inches(0.35), size=14, bold=True, color=DARK, font=FONT)
-    _revenue_table(s, m, aov, cap_hi, Inches(0.5), Inches(3.7), Inches(12.33))
+          Inches(0.5), Inches(3.45), Inches(12.3), Inches(0.35), size=14, bold=True, color=RC_NAVY, font=FONT)
+    _revenue_table(s, m, aov, cap_hi, Inches(0.5), Inches(3.85), Inches(12.33))
 
     # Headline takeaway — lead with the CONSERVATIVE cell, framed as a floor.
     # Wording flexes with where the order value came from, so we never assert an
@@ -983,7 +1046,7 @@ def _revenue_table(s, m, aov, cap_hi, x, y, w):
     aovs = [max(50, round(aov / 2)), aov, aov * 2]
     rows = len(CAPTURE_RATES) + 1
     cols = len(aovs) + 1
-    row_in = 0.55
+    row_in = 0.5
     tbl_shape = s.shapes.add_table(rows, cols, x, y, w, Inches(row_in * rows))
     tbl = tbl_shape.table
     tbl.first_row = False
@@ -1030,33 +1093,33 @@ def _slide_next(prs, r: PipelineResult, ctx, narr):
     _WARM_SLIDES.add(len(prs.slides))   # white footer + page number on this slide
     _logo(s, warm=True)
     m = ctx["roi"]
-    _title_block(s, narr.get("title", "Recommendation & next steps"),
-                 narr.get("subtitle", "Turn the missed-call gap into recovered revenue — starting with a focused pilot"),
-                 warm=True)
-
-    steps = [
-        ("Confirm the numbers", "Review this analysis with your operations team and validate the queues, volumes, and order value against your own reporting."),
-        ("Pilot on the worst gap", "Stand up AIR on the highest-miss queues and the after-hours window first — fastest, most visible recovery."),
-        ("Measure recovered calls", "Track answered-vs-missed and captured leads for 30–60 days against the baseline in this deck."),
-        ("Roll out companywide", "Expand AIR across every location once the pilot proves capture — with free implementation and 4 months free."),
-    ]
-    y = Inches(2.05); rh = Inches(1.1); gap = Inches(0.12)
-    for i, (title, body) in enumerate(steps, 1):
-        _rect(s, Inches(0.5), y, Inches(12.33), rh, WHITE, line=CARD_BORDER, radius=True)
-        _circle(s, Inches(0.78), y + Inches(0.3), Inches(0.5), RC_ORANGE, str(i), size=18)
-        _text(s, title, Inches(1.6), y + Inches(0.16), Inches(11.0), Inches(0.4),
-              size=16, bold=True, color=RC_BLUE, font=FONT)
-        _text(s, body, Inches(1.6), y + Inches(0.56), Inches(10.9), Inches(0.5),
-              size=12, color=GRAY, line_spacing=1.05)
-        y = Emu(int(y) + int(rh) + int(gap))
-
     cap_hi = ctx.get("capture_override") or CONSERVATIVE_CAPTURE
-    rec_lo = cap_hi * m["rev_missed_per_year"] * ctx.get("aov", AVG_ORDER_VALUE)
-    _text(s, f"Even at a conservative {round(cap_hi*100)}% capture on revenue-line missed calls, "
-             f"that's ~{_money(rec_lo)}/year in recovered revenue — validated against your own order value.",
-          Inches(0.5), Inches(6.5), Inches(12.33), Inches(0.4),
-          size=13, bold=True, italic=True, color=WHITE, align=PP_ALIGN.CENTER, font=FONT)
-    _footer(s, 10, warm=True)
+    aov = ctx.get("aov", AVG_ORDER_VALUE)
+    rec_lo = cap_hi * m["rev_missed_per_year"] * aov
+    air_year = m["air_cost_year"]
+
+    _eyebrow(s, "The recommendation", Inches(0.5), Inches(1.95))
+    _hero(s, "Answer every call.", "Recover the revenue.", Inches(0.5), Inches(2.45),
+          size=44, dark=True)
+
+    # Three ROI stat cards on navy (transparent-navy cards).
+    cards = [
+        (_money(air_year), "annual cost to run AIR", RC_ORANGE),
+        (f"~{_money(rec_lo)}", f"recovered/yr at {round(cap_hi*100)}% capture", RC_ORANGE),
+        (f"{round(rec_lo / air_year) if air_year else 0}×", "return — net of all cost", GREEN),
+    ]
+    cx, cw, gap = Inches(0.5), Inches(3.95), Inches(0.24)
+    cy, ch = Inches(4.7), Inches(1.55)
+    for big, label, col in cards:
+        _stat_card(s, cx, cy, cw, ch, big, label, big_color=col, fill=NAVY_CARD,
+                   label_color=ICE, big_size=40)
+        cx = Emu(int(cx) + int(cw) + int(gap))
+
+    _text(s, "Even at a conservative capture rate on revenue-line missed calls, the return dwarfs the cost — "
+             "validated against your own order value.",
+          Inches(0.52), Inches(6.55), Inches(11.5), Inches(0.5),
+          size=12.5, italic=True, color=ICE, font=FONT)
+    _footer(s, warm=True)
 
 
 # ---------------------------------------------------------------------------
@@ -1263,6 +1326,7 @@ def build_deck(result: PipelineResult, run_id: str, customer: str, ae_name: str,
     #      the answer to the "just help us configure our queues" objection
     #   6. Illustrative opportunity (single, clearly-caveated money slide)
     #   7. Recommendation & next steps
+    _slide_cover(prs, result, ctx, ae_name)      # navy cover
     _slide_call_reasons(prs, result, ctx, {})   # opener — robust to missing business context
     _slide2(prs, result, ctx, narr2, sales_queue_calls)
     _slide_hourly(prs, result, ctx, narr_hourly)
