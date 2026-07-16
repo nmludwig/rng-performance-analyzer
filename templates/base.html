@@ -80,7 +80,12 @@
 <body>
 <nav>
   <span class="brand">RC Performance Analyzer</span>
-  {% if session.get('authed') %}<a href="/logout">Sign out</a>{% endif %}
+  {% if session.get('authed') %}
+    <span>
+      {% if is_admin %}<a href="/admin" style="margin-right:1.25rem;">Admin</a>{% endif %}
+      <a href="/logout">Sign out</a>
+    </span>
+  {% endif %}
 </nav>
 <div class="container">
   {% with messages = get_flashed_messages() %}

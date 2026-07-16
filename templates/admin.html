@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block content %}
+
+{% if forbidden %}
+<div class="card" style="max-width:520px;margin:3rem auto;text-align:center;">
+  <h1 style="font-size:1.3rem;">Not authorized</h1>
+  <p style="color:#777;margin-top:0.5rem;">
+    The admin run log is restricted to whitelisted RingCentral employees.
+    You're signed in as <strong>{{ session.get('user_email') }}</strong>.
+  </p>
+  <a href="/" class="btn btn-primary" style="margin-top:1rem;text-decoration:none;">← Back to the tool</a>
+</div>
+{% else %}
+
+<div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:1rem;">
+  <h1 style="color:#fff;font-size:1.6rem;">Run log</h1>
+  <span style="color:#bccde2;font-size:0.85rem;">
+    {{ runs|length }} run{{ '' if runs|length == 1 else 's' }} · no report data is stored
+  </span>
+</div>
+
+<div class="card" style="padding:0;overflow:hidden;">
+  {% if not runs %}
+  <p style="padding:2rem;text-align:center;color:#888;">No runs recorded yet.</p>
+  {% else %}
+  <div style="overflow-x:auto;">
+    <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+      <thead>
+        <tr style="background:#f4f6fa;text-align:left;color:#555;">
+          <th style="padding:0.6rem 0.75rem;white-space:nowrap;">When (UTC)</th>
+          <th style="padding:0.6rem 0.75rem;">User</th>
+          <th style="padding:0.6rem 0.75rem;">Customer</th>
+          <th style="padding:0.6rem 0.75rem;">AE / SE</th>
+          <th style="padding:0.6rem 0.75rem;">Status</th>
+          <th style="padding:0.6rem 0.75rem;text-align:right;">Duration</th>
+          <th style="padding:0.6rem 0.75rem;text-align:right;">Sessions</th>
+          <th style="padding:0.6rem 0.75rem;text-align:right;">Queues</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in runs %}
+        <tr style="border-top:1px solid #eef1f6;">
+          <td style="padding:0.55rem 0.75rem;white-space:nowrap;color:#444;">
+            {{ r.ts|replace('T', ' ')|replace('+00:00', '') }}
+          </td>
+          <td style="padding:0.55rem 0.75rem;">{{ r.user_email or '—' }}</td>
+          <td style="padding:0.55rem 0.75rem;">
+            {{ r.customer or '—' }}{% if r.refine %} <span style="color:#9a5a00;font-size:0.72rem;">· refine</span>{% endif %}
+            {% if r.company_url %}<div style="color:#aaa;font-size:0.72rem;">{{ r.company_url }}</div>{% endif %}
+          </td>
+          <td style="padding:0.55rem 0.75rem;">{{ r.ae_name or '—' }}</td>
+          <td style="padding:0.55rem 0.75rem;">
+            {% if r.status == 'success' %}
+              <span style="color:#1a7f37;font-weight:600;">✓ success</span>
+            {% else %}
+              <span style="color:#c0392b;font-weight:600;">✕ error</span>
+              {% if r.error %}<div style="color:#c0392b;font-size:0.72rem;max-width:280px;">{{ r.error }}</div>{% endif %}
+            {% endif %}
+          </td>
+          <td style="padding:0.55rem 0.75rem;text-align:right;white-space:nowrap;">
+            {% if r.duration_s is not none %}{{ r.duration_s }}s{% else %}—{% endif %}
+          </td>
+          <td style="padding:0.55rem 0.75rem;text-align:right;">
+            {% if r.sessions is not none %}{{ "{:,}".format(r.sessions) }}{% else %}—{% endif %}
+          </td>
+          <td style="padding:0.55rem 0.75rem;text-align:right;">
+            {% if r.queues is not none %}{{ r.queues }}{% else %}—{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>
+
+{% endif %}
+{% endblock %}

@@ -1,4 +1,5 @@
 import os
+import time
 import uuid
 import json
 import base64
@@ -12,6 +13,8 @@ from flask import (
     render_template, send_file, jsonify, flash, Response, stream_with_context
 )
 from dotenv import load_dotenv
+
+from run_log import log_run, read_runs
 
 load_dotenv(override=True)
 
@@ -131,6 +134,29 @@ def _rc_fetch_email(access_token):
 def logout():
     session.clear()
     return redirect(url_for("login"))
+
+
+# Only these employees may view the admin run log. Comma-separated override via
+# ADMIN_EMAILS in the environment; defaults to the tool owner.
+ADMIN_EMAILS = {
+    e.strip().lower()
+    for e in os.environ.get("ADMIN_EMAILS", "matthew.ludwig@ringcentral.com").split(",")
+    if e.strip()
+}
+
+
+@app.context_processor
+def _inject_is_admin():
+    return {"is_admin": session.get("user_email", "").strip().lower() in ADMIN_EMAILS}
+
+
+@app.route("/admin")
+def admin():
+    if not session.get("authed"):
+        return redirect(url_for("login"))
+    if session.get("user_email", "").strip().lower() not in ADMIN_EMAILS:
+        return render_template("admin.html", runs=None, forbidden=True), 403
+    return render_template("admin.html", runs=read_runs(), forbidden=False)
 
 
 def require_auth():
@@ -388,11 +414,27 @@ def api_process_stream(run_id):
     messages = session.get("messages", [])
     download_url = url_for("download", run_id=run_id)
     biz_summary_seed = business_context
+    user_email = session.get("user_email", "")
+    filename = session.get("filename", "")
+    queues_filename = session.get("queues_filename", "")
 
     @stream_with_context
     def gen():
         def ev(**payload):
             return "data: " + json.dumps(payload) + "\n\n"
+
+        started = time.monotonic()
+        run_meta = {
+            "run_id": run_id,
+            "user_email": user_email,
+            "customer": customer,
+            "ae_name": ae_name,
+            "company_url": company_url,
+            "reporting_period": reporting_period,
+            "calls_file": filename,
+            "queues_file": queues_filename,
+            "refine": bool(messages),
+        }
 
         try:
             from pipeline import (parse_sessions, build_result, distinct_queues,
@@ -441,12 +483,21 @@ def api_process_stream(run_id):
                 overrides=overrides,
             )
 
+            log_run({**run_meta, "status": "success",
+                     "duration_s": round(time.monotonic() - started, 1),
+                     "sessions": int(n_sessions), "queues": len(queues)})
             yield ev(stage="done", msg="Deck ready.", pct=100,
                      download_url=download_url,
                      business=_business_summary_from(biz))
         except ValueError as e:
+            log_run({**run_meta, "status": "error",
+                     "duration_s": round(time.monotonic() - started, 1),
+                     "error": str(e)})
             yield ev(error=str(e))
         except Exception as e:
+            log_run({**run_meta, "status": "error",
+                     "duration_s": round(time.monotonic() - started, 1),
+                     "error": f"Processing error: {e}"})
             yield ev(error=f"Processing error: {e}")
 
     return Response(gen(), mimetype="text/event-stream",
