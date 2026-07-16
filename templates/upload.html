@@ -85,7 +85,8 @@
       <em>their</em> figure (fully defensible).
       {% if business and business.suggested_avg_order_value %}
         We estimated <strong>${{ "{:,}".format(business.suggested_avg_order_value|int) }}</strong> from
-        their website — replace it with the real number if you have it.
+        their website{% if business.aov_basis %} — {{ business.aov_basis }}{% endif %}.
+        Replace it with the real number if you have it.
       {% endif %}
       Leave blank and the slide clearly labels the value as an estimate to confirm.
     </p>

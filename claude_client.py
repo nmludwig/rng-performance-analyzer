@@ -145,15 +145,16 @@ Return JSON only with this exact shape:
      "tier": "A|B|C|D",
      "revenue_relevant": true}
   ],
-  "suggested_avg_order_value": <integer USD, your best defensible estimate for a typical order/transaction, or null if unknowable>,
-  "aov_basis": "<<=12 words explaining the order-value estimate, or empty>"
+  "suggested_avg_order_value": <integer USD, your best defensible estimate for the order a typical inbound phone call produces, or null if unknowable>,
+  "aov_basis": "<<=20 words: what transaction this represents and why that figure>"
 }
 
 Rules:
 - Ground every claim in the website text or the queue names; do not invent specific facts (no fake revenue, locations, or customer names).
 - Predict 4-7 call reasons most likely for THIS business, whatever its industry. Map each to a tier: A=direct sales / new revenue, B=customer-facing front line (orders, scheduling, service that drives revenue/retention), C=general main line / reception, D=back-office / internal support.
 - revenue_relevant=true when answering that call could win or retain revenue.
-- suggested_avg_order_value: reason from the business type and typical transaction size (e.g. a distributor or B2B firm -> larger orders; a salon or cafe -> small; a SaaS or services firm -> a contract/booking value). Be conservative and defensible.
+- suggested_avg_order_value: estimate the value of the order a TYPICAL INBOUND PHONE CALL actually generates for this business — NOT the price of its flagship or big-ticket item. This is the crux: for a heavy-equipment or auto dealer, most calls are parts, service, and rentals (hundreds to low-thousands), not the once-in-years purchase of a $120k machine; for a distributor, a routine reorder, not a whole-year contract. Weight toward the high-frequency, phone-driven transaction, blend across the likely call mix, and when a business spans a wide price range choose the LOWER, more defensible figure a skeptical CFO would accept. Small consumer service (salon, cafe) -> tens to low-hundreds; SaaS/services -> a booking or contract value only if calls actually close those. Round to a clean number.
+- aov_basis: state plainly what transaction the figure represents and why (e.g. "typical parts/service order — the bulk of dealer inbound calls, not machine sales"), so an AE can defend or correct it.
 - JSON only, no prose, no code fences."""
 
 

@@ -472,6 +472,7 @@ def _business_summary_from(biz):
             r.get("reason", "") for r in (biz.get("predicted_call_reasons") or [])
         ][:6],
         "suggested_avg_order_value": biz.get("suggested_avg_order_value"),
+        "aov_basis": biz.get("aov_basis", ""),
     }
 
 
