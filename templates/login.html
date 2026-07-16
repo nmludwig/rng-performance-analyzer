@@ -11,22 +11,24 @@
       </p>
     </div>
 
-    <h1 style="margin-bottom:0.25rem;font-size:1.25rem;">Sign in with your RingCentral account</h1>
+    <h1 style="margin-bottom:0.25rem;font-size:1.25rem;">Login into your corporate RingCentral Account</h1>
     <p class="subtitle">Restricted to RingCentral employees.</p>
 
     {% if error %}<div class="flash" style="background:#fde8e8;border-color:#e53e3e;color:#7b1d1d;">{{ error }}</div>{% endif %}
 
-    <form method="POST">
-      <label for="email">RingCentral email</label>
-      <input type="email" id="email" name="email" placeholder="you@ringcentral.com"
-             autocomplete="username" autofocus required>
+    <p style="color:#555;font-size:0.9rem;line-height:1.55;margin:1rem 0 1.5rem;">
+      Sign in using your corporate RingCentral account. You don't pull any customer
+      data with this login — it only confirms you're a RingCentral employee. Later,
+      you'll send the prospect's RingCentral admin a separate consent link, and the
+      data pull runs against their authorization.
+    </p>
 
-      <label for="password">Password</label>
-      <input type="password" id="password" name="password"
-             autocomplete="current-password" required>
-
-      <button class="btn btn-primary" style="width:100%;margin-top:0.5rem;">Sign in</button>
-    </form>
+    {% if sso_ready %}
+    <a href="{{ url_for('oauth_start') }}" class="btn btn-primary"
+       style="width:100%;display:block;text-align:center;text-decoration:none;">
+      Login
+    </a>
+    {% endif %}
 
     <p style="text-align:center;color:#aaa;font-size:0.75rem;margin-top:1.5rem;margin-bottom:0;">
       Internal tool · RingCentral employees only

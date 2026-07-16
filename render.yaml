@@ -10,11 +10,17 @@ services:
       # with a native SIGSEGV (worker "code 139"). 3.12 has known-good wheels.
       - key: PYTHON_VERSION
         value: 3.12.7
-      - key: APP_PASSWORD
-        sync: false
       - key: SECRET_KEY
         generateValue: true
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: FIRECRAWL_API_KEY
+        sync: false
+      # RingCentral corporate SSO (login). Register the redirect URI in the RC
+      # OAuth app: https://<host>/oauth/callback
+      - key: RC_CLIENT_ID
+        sync: false
+      - key: RC_CLIENT_SECRET
+        sync: false
+      - key: RC_REDIRECT_URI
         sync: false

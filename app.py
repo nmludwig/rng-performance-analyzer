@@ -1,7 +1,11 @@
 import os
 import uuid
 import json
+import base64
+import secrets
 import tempfile
+import urllib.parse
+import urllib.request
 from pathlib import Path
 from flask import (
     Flask, request, session, redirect, url_for,
@@ -18,31 +22,109 @@ app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50 MB
 UPLOAD_FOLDER = Path(tempfile.gettempdir()) / "rc_analyzer_uploads"
 UPLOAD_FOLDER.mkdir(exist_ok=True)
 
-APP_PASSWORD = os.environ["APP_PASSWORD"]
-
-
 # ---------------------------------------------------------------------------
-# Auth
+# Auth — RingCentral corporate single sign-on (OAuth 2.0 authorization code)
 # ---------------------------------------------------------------------------
+#
+# Employees log in with their real RingCentral credentials. We never pull any
+# customer data with this login — it only proves the person is a RingCentral
+# employee. After RingCentral authenticates them we read their profile email and
+# require it to be an @ringcentral.com address.
+
+RC_CLIENT_ID = os.environ.get("RC_CLIENT_ID", "")
+RC_CLIENT_SECRET = os.environ.get("RC_CLIENT_SECRET", "")
+RC_REDIRECT_URI = os.environ.get("RC_REDIRECT_URI", "")
+RC_SERVER_URL = os.environ.get("RC_SERVER_URL", "https://platform.ringcentral.com").rstrip("/")
 
 ALLOWED_EMAIL_DOMAIN = "ringcentral.com"
 
 
-@app.route("/login", methods=["GET", "POST"])
+def _sso_configured():
+    return bool(RC_CLIENT_ID and RC_CLIENT_SECRET and RC_REDIRECT_URI)
+
+
+@app.route("/login")
 def login():
-    error = None
-    if request.method == "POST":
-        email = request.form.get("email", "").strip().lower()
-        password = request.form.get("password", "")
-        if not email.endswith("@" + ALLOWED_EMAIL_DOMAIN):
-            error = "Please sign in with your RingCentral email address."
-        elif password == APP_PASSWORD:
-            session["authed"] = True
-            session["user_email"] = email
-            return redirect(url_for("index"))
-        else:
-            error = "Incorrect email or password."
-    return render_template("login.html", error=error)
+    if session.get("authed"):
+        return redirect(url_for("index"))
+    error = request.args.get("error")
+    if not _sso_configured():
+        error = ("Single sign-on is not configured. Set RC_CLIENT_ID, "
+                 "RC_CLIENT_SECRET and RC_REDIRECT_URI on the server.")
+    return render_template("login.html", error=error, sso_ready=_sso_configured())
+
+
+@app.route("/oauth/start")
+def oauth_start():
+    if not _sso_configured():
+        return redirect(url_for("login"))
+    state = secrets.token_urlsafe(24)
+    session["oauth_state"] = state
+    params = urllib.parse.urlencode({
+        "response_type": "code",
+        "client_id": RC_CLIENT_ID,
+        "redirect_uri": RC_REDIRECT_URI,
+        "state": state,
+    })
+    return redirect(f"{RC_SERVER_URL}/restapi/oauth/authorize?{params}")
+
+
+@app.route("/oauth/callback")
+def oauth_callback():
+    if request.args.get("error"):
+        return redirect(url_for("login", error="RingCentral sign-in was cancelled."))
+
+    code = request.args.get("code")
+    state = request.args.get("state")
+    expected = session.pop("oauth_state", None)
+    if not code or not state or not expected or state != expected:
+        return redirect(url_for("login", error="Sign-in expired or invalid — please try again."))
+
+    try:
+        access_token = _rc_exchange_code(code)
+        email = _rc_fetch_email(access_token)
+    except Exception:
+        return redirect(url_for("login", error="Could not complete RingCentral sign-in — please try again."))
+
+    email = (email or "").strip().lower()
+    if not email.endswith("@" + ALLOWED_EMAIL_DOMAIN):
+        return redirect(url_for("login", error="This tool is restricted to RingCentral employees."))
+
+    session["authed"] = True
+    session["user_email"] = email
+    return redirect(url_for("index"))
+
+
+def _rc_exchange_code(code):
+    """Trade the authorization code for an access token (HTTP Basic client auth)."""
+    data = urllib.parse.urlencode({
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": RC_REDIRECT_URI,
+    }).encode()
+    basic = base64.b64encode(f"{RC_CLIENT_ID}:{RC_CLIENT_SECRET}".encode()).decode()
+    req = urllib.request.Request(
+        f"{RC_SERVER_URL}/restapi/oauth/token", data=data, method="POST",
+        headers={
+            "Authorization": f"Basic {basic}",
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept": "application/json",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        payload = json.loads(resp.read().decode())
+    return payload["access_token"]
+
+
+def _rc_fetch_email(access_token):
+    """Read the signed-in extension's contact email to enforce the employee check."""
+    req = urllib.request.Request(
+        f"{RC_SERVER_URL}/restapi/v1.0/account/~/extension/~",
+        headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        payload = json.loads(resp.read().decode())
+    return (payload.get("contact") or {}).get("email", "")
 
 
 @app.route("/logout")

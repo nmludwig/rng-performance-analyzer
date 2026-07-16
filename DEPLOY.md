@@ -16,13 +16,27 @@ Keep it `chmod 600`; it is git-ignored and must never be committed.
 
 ```
 SECRET_KEY=<random; python -c "import secrets; print(secrets.token_hex(32))">
-APP_PASSWORD=<login password for the site>
 ANTHROPIC_API_KEY=sk-ant-...
 FIRECRAWL_API_KEY=fc-...        # optional; website crawl degrades gracefully if absent
+
+# RingCentral corporate SSO (login). Register the redirect URI below in the
+# RingCentral OAuth app, then reuse that app's client id/secret here.
+RC_CLIENT_ID=...
+RC_CLIENT_SECRET=...
+RC_REDIRECT_URI=https://rng-performance-analyzer.celab.ringcentral.com/oauth/callback
+# RC_SERVER_URL=https://platform.ringcentral.com   # optional; defaults to production
 ```
 
-`SECRET_KEY`, `APP_PASSWORD`, and `ANTHROPIC_API_KEY` are required — the app
-fails to start without them. `FIRECRAWL_API_KEY` is optional.
+`SECRET_KEY` and `ANTHROPIC_API_KEY` are required — the app fails to start
+without them. Login is RingCentral OAuth: without `RC_CLIENT_ID`,
+`RC_CLIENT_SECRET` and `RC_REDIRECT_URI` the app still runs but the login page
+shows "single sign-on is not configured" and no one can sign in. Only
+`@ringcentral.com` accounts are admitted. `FIRECRAWL_API_KEY` is optional.
+
+The `RC_REDIRECT_URI` above must be registered as an allowed redirect URI in the
+RingCentral OAuth app (the same app ACE Engine uses, or a new one). The
+authorization-code flow is: `/oauth/start` → RingCentral login →
+`/oauth/callback` reads the extension's contact email → employee check → session.
 
 ## First-time setup on the server
 
