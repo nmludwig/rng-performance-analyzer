@@ -577,9 +577,10 @@ def _slide3(prs, r: PipelineResult, ctx, narr):
                          and getattr(q, "answered", 0) > 0),
                         key=lambda q: q.abandoned, reverse=True)[:8]
         _abandon_table_qr(s, top_ab, rx, Inches(2.55), Inches(7.85))
-        _text(s, "Staffed queues only. Pure routing/overflow queues (0 agents) are excluded — a call "
-                 "transferred onward is logged as “abandoned” there but was answered after transfer.",
-              rx, Inches(6.02), Inches(7.85), Inches(0.4), size=8, italic=True, color=MUTED)
+        _text(s, "“Left queue” = caller left this queue before it answered. Not all were lost — some were "
+                 "answered after transfer to another queue. Staffed queues only; pure routing/overflow "
+                 "queues (0 agents) are excluded.",
+              rx, Inches(6.02), Inches(7.85), Inches(0.5), size=8, italic=True, color=MUTED)
         # Wait-time / SLA context strip
         bits = []
         if qr.avg_wait:
@@ -659,7 +660,7 @@ def _abandon_table_qr(s, queues, x, y, w):
         tbl.columns[j].width = Inches(ww)
     for i in range(rows):
         tbl.rows[i].height = Inches(row_in)
-    headers = ["Queue", "Rev", "Inbound", "Abandoned", "Ab. %"]
+    headers = ["Queue", "Rev", "Inbound", "Left queue", "Left %"]
     for j, htext in enumerate(headers):
         c = tbl.cell(0, j)
         c.fill.solid(); c.fill.fore_color.rgb = RC_NAVY
