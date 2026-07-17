@@ -641,15 +641,12 @@ def api_refine(run_id):
     if not upload_path.exists():
         return jsonify({"error": "Uploaded file not found."}), 404
 
-    try:
-        pptx_path = _run_pipeline_and_build(run_id, upload_path, messages)
-        session["pptx_path"] = str(pptx_path)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
+    # The heavy regeneration is streamed by /api/process_stream so the browser
+    # gets live per-stage progress. Here we only persist the instruction and any
+    # extracted overrides to the session; the stream reads them back and rebuilds.
     return jsonify({
         "ok": True,
-        "download_url": url_for("download", run_id=run_id),
+        "stream_url": url_for("api_process_stream", run_id=run_id),
         "applied": applied,
     })
 

@@ -62,6 +62,8 @@
 .chat-msg { padding:0.5rem 0.75rem;border-radius:6px;margin-bottom:0.5rem;font-size:0.9rem; }
 .chat-user { background:#f0f0f0;color:#222; }
 .chat-system { background:#fff8f0;color:#444;border-left:3px solid #ff8800; }
+.mini-spinner { width:16px;height:16px;border:3px solid #f0d9c0;border-top-color:#ff8800;
+  border-radius:50%;animation:spin 0.8s linear infinite;flex:none; }
 </style>
 
 <script>
@@ -149,30 +151,96 @@ document.getElementById("refine-form").addEventListener("submit", async (e) => {
   appendChat("user", instruction);
   input.value = "";
   document.getElementById("refine-btn").disabled = true;
-  appendChat("system", "Regenerating deck…");
 
-  const res = await fetch(`/api/refine/${runId}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ instruction }),
-  });
-  const data = await res.json();
-  document.getElementById("refine-btn").disabled = false;
+  const progress = appendProgress();
 
-  const log = document.getElementById("chat-log");
-  log.removeChild(log.lastChild);  // remove "Regenerating…"
-
-  if (!res.ok || data.error) {
-    appendChat("system", "Error: " + (data.error || "Unknown error"));
-  } else {
-    let msg = "Deck updated — download link refreshed.";
-    if (data.applied && data.applied.length) {
-      msg += " Applied: " + data.applied.join(", ") + ".";
+  let data;
+  try {
+    const res = await fetch(`/api/refine/${runId}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ instruction }),
+    });
+    data = await res.json();
+    if (!res.ok || data.error) {
+      progress.fail(data.error || "Unknown error");
+      document.getElementById("refine-btn").disabled = false;
+      return;
     }
-    appendChat("system", msg);
-    document.getElementById("download-link").href = data.download_url + "?t=" + Date.now();
+  } catch (err) {
+    progress.fail("Could not reach the server. Please try again.");
+    document.getElementById("refine-btn").disabled = false;
+    return;
   }
+
+  // Stream the actual rebuild so the user sees each stage as it happens.
+  const appliedMsg = (data.applied && data.applied.length)
+    ? " Applied: " + data.applied.join(", ") + "." : "";
+  const es = new EventSource(data.stream_url);
+  es.onmessage = (ev) => {
+    let d;
+    try { d = JSON.parse(ev.data); } catch (_) { return; }
+    if (d.error) {
+      es.close();
+      progress.fail(d.error);
+      document.getElementById("refine-btn").disabled = false;
+      return;
+    }
+    if (d.msg) progress.update(d.msg, d.pct);
+    if (d.stage === "done") {
+      es.close();
+      progress.done("Deck updated — download link refreshed." + appliedMsg);
+      document.getElementById("download-link").href = d.download_url + "?t=" + Date.now();
+      document.getElementById("refine-btn").disabled = false;
+    }
+  };
+  es.onerror = () => {
+    if (progress.finished) return;
+    es.close();
+    progress.fail("The connection to the server was lost. Please try again.");
+    document.getElementById("refine-btn").disabled = false;
+  };
 });
+
+function appendProgress() {
+  const log = document.getElementById("chat-log");
+  const div = document.createElement("div");
+  div.className = "chat-msg chat-system";
+  div.innerHTML =
+    '<div style="display:flex;align-items:center;gap:0.6rem;">' +
+      '<div class="mini-spinner"></div>' +
+      '<span class="p-msg" style="font-weight:600;">Starting…</span>' +
+    '</div>' +
+    '<div style="height:7px;background:#eef1f5;border-radius:999px;overflow:hidden;margin-top:0.5rem;">' +
+      '<div class="p-bar" style="height:100%;width:2%;background:linear-gradient(90deg,#ff8800,#ff9a3d);' +
+        'border-radius:999px;transition:width 0.45s ease;"></div>' +
+    '</div>';
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+  const msgEl = div.querySelector(".p-msg");
+  const barEl = div.querySelector(".p-bar");
+  const spin = div.querySelector(".mini-spinner");
+  return {
+    finished: false,
+    update(msg, pct) {
+      msgEl.textContent = msg;
+      if (typeof pct === "number") barEl.style.width = pct + "%";
+      log.scrollTop = log.scrollHeight;
+    },
+    done(msg) {
+      this.finished = true;
+      spin.remove();
+      barEl.style.width = "100%";
+      msgEl.textContent = msg;
+    },
+    fail(msg) {
+      this.finished = true;
+      spin.remove();
+      barEl.style.background = "#c0392b";
+      msgEl.textContent = "Error: " + msg;
+    },
+  };
+}
 
 function appendChat(role, text) {
   const log = document.getElementById("chat-log");
