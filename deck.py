@@ -270,6 +270,26 @@ def _slide_cover(prs, r: PipelineResult, ctx, ae_name):
 # Slide 2 — missed-call summary
 # ---------------------------------------------------------------------------
 
+def _business_days(r: PipelineResult) -> int:
+    """Weekdays (Mon–Fri) actually present in the reporting window.
+
+    Counted from the call timestamps so "per business day" is defensible; falls
+    back to a 5/7 proration of the calendar span if timestamps aren't available.
+    """
+    import pandas as pd
+    df = r.sessions_df
+    try:
+        if df is not None and "start_time" in df.columns:
+            dts = pd.to_datetime(df["start_time"], errors="coerce").dropna()
+            wd = dts.dt.normalize()
+            n = int(wd[wd.dt.weekday < 5].nunique())
+            if n:
+                return n
+    except Exception:
+        pass
+    return max(round((r.days_in_period or 30) * 5 / 7), 1)
+
+
 def _slide2(prs, r: PipelineResult, ctx, narr, sales_queue_calls):
     s = prs.slides.add_slide(prs.slide_layouts[6])
     _bg(s)
@@ -283,10 +303,11 @@ def _slide2(prs, r: PipelineResult, ctx, narr, sales_queue_calls):
     # Top row — three big-number stat cards.
     cy, cw, ch, gap = Inches(2.15), Inches(3.95), Inches(1.75), Inches(0.24)
     cx = Inches(0.5)
+    bpd = _business_days(r)
     stats = [
-        (f"{r.total_missed:,}", "genuine missed calls\ncustomer-facing queues", RC_RED),
+        (f"{r.total_missed:,}", "genuine missed calls\nexternal inbound only", RC_RED),
         (f"{r.miss_rate*100:.0f}%", f"of {r.universe_sessions:,} inbound\nsessions went unanswered", RC_NAVY),
-        (f"{sales_queue_calls:,}", "are revenue-line calls\nsales · orders · bookings", RC_ORANGE),
+        (f"{round(r.total_missed/bpd):,}", "missed every business day\n(Mon–Fri average)", RC_ORANGE),
     ]
     for big, label, col in stats:
         _stat_card(s, cx, cy, cw, ch, big, label, big_color=col, big_size=42)
@@ -728,7 +749,7 @@ def _slide_config_vs_air(prs, r: PipelineResult, ctx, narr):
     cy, ch = Inches(2.4), Inches(2.9)
     cards = [
         (Inches(0.5), Inches(3.55), CARD_BG, RC_NAVY, MUTED,
-         "TOTAL GENUINE MISSED", f"{total:,}", "customer-facing · spam-filtered · de-duplicated",
+         "TOTAL GENUINE MISSED", f"{total:,}", "external inbound · spam-filtered · de-duplicated",
          "Every inbound call that never reached a person."),
         (Inches(4.78), Inches(3.55), RGBColor(0xFB,0xF3,0xE0), RC_GOLD, MUTED,
          "CONFIG-FIXABLE (PRO SERVICES)", f"{config_fixable:,}",
@@ -808,7 +829,7 @@ def _slide_call_reasons(prs, r: PipelineResult, ctx, narr):
     if not (summary or reasons_present):
         _title_block(s, f"{r.total_missed:,} missed calls — and who was trying to reach {customer}",
                      f"RingCentral Performance Reports · {r.reporting_period} · "
-                     f"session-deduplicated · spam-filtered · customer-facing lines only")
+                     f"session-deduplicated · spam-filtered · external inbound only")
         _footer(s)
         return
 
@@ -1342,8 +1363,8 @@ def _narr_titles(ctx, prior, which):
         return generate_narrative({**ctx, "slide": which}, schema, prior)
     except Exception:
         if which == "slide2":
-            return {"title": f"{ctx['total_missed']:,} genuine missed calls across customer-facing queues",
+            return {"title": f"{ctx['total_missed']:,} genuine missed calls, external inbound only",
                     "subtitle": f"Customer-facing queues · {ctx['reporting_period']} · session-deduplicated · spam-filtered · internal/back-office excluded"}
         return {"title": "Where customers are getting missed — by queue",
-                "subtitle": f"Session-deduplicated · spam-filtered · {ctx['reporting_period']} · customer-facing queues only · ranked by calls lost"}
+                "subtitle": f"Session-deduplicated · spam-filtered · {ctx['reporting_period']} · external inbound only · ranked by calls lost"}
 
