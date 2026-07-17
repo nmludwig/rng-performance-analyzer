@@ -532,29 +532,23 @@ def _slide3(prs, r: PipelineResult, ctx, narr):
     _title_block(s, narr.get("title", "Where AI Receptionist captures revenue today"),
                  narr.get("subtitle", ""))
 
-    # Real abandoned data comes from the Queues report (2nd upload). The Calls
-    # export doesn't carry an "Abandoned" disposition, so prefer the Queues
-    # report; fall back to the Calls-derived figure only if it's absent.
     qr = r.queues_report
-    if qr and qr.inbound:
-        abandoned_n = qr.abandoned
-        abandon_rate = qr.abandon_rate
-    else:
-        abandoned_n = r.abandoned_total
-        abandon_rate = r.abandoned_total / r.universe_sessions if r.universe_sessions else 0
 
-    # Two stacked stat cards on the left
+    # Two stacked stat cards on the left — both transfer-safe, session-deduplicated
+    # signals of the AI-receptionist opportunity (no queue-level abandoned metric,
+    # which the Queues report inflates by counting queue-to-queue transfers).
     lx, lw = Inches(0.5), Inches(4.15)
-    # Card A — abandoned callers
+    # Card A — genuine missed calls AIR can answer (session-deduplicated)
     ay, ah = Inches(2.15), Inches(2.15)
     _rect(s, lx, ay, lw, ah, CARD_BG, radius=True)
-    _text(s, "CALLERS WHO WAITED,\nTHEN HUNG UP", lx + Inches(0.28), ay + Inches(0.22),
+    _text(s, "MISSED CALLS AI\nRECEPTIONIST CAN ANSWER", lx + Inches(0.28), ay + Inches(0.22),
           lw - Inches(0.5), Inches(0.6), size=11.5, bold=True, color=MUTED, font=FONT)
-    _text(s, f"{abandoned_n:,}", lx + Inches(0.24), ay + Inches(0.74), lw - Inches(0.3), Inches(1.0),
+    _text(s, f"{r.total_missed:,}", lx + Inches(0.24), ay + Inches(0.74), lw - Inches(0.3), Inches(1.0),
           size=54, bold=True, color=RC_RED, font=FONT, wrap=False)
-    _rich(s, [[(f"{abandon_rate*100:.1f}%", {"bold": True, "size": 12, "color": RC_NAVY}),
-               (" of queue calls were abandoned while waiting", {"size": 12, "color": MUTED})]],
-          lx + Inches(0.28), ay + Inches(1.66), lw - Inches(0.5), Inches(0.4))
+    _rich(s, [[("24/7 — ", {"bold": True, "size": 12, "color": RC_NAVY}),
+               ("after-hours calls and business-hours overflow alike, picked up instantly",
+                {"size": 12, "color": MUTED})]],
+          lx + Inches(0.28), ay + Inches(1.66), lw - Inches(0.5), Inches(0.5))
 
     # Card B — answered under 60s
     by, bh = Inches(4.55), Inches(2.15)
@@ -569,16 +563,23 @@ def _slide3(prs, r: PipelineResult, ctx, narr):
 
     # Right — most-abandoned queues table (from the Queues report when present)
     rx = Inches(5.0)
-    _text(s, "Where callers give up — most-abandoned queues", rx, Inches(2.15),
+    _text(s, "Where callers wait, then drop — staffed queues", rx, Inches(2.15),
           Inches(7.8), Inches(0.35), size=14, bold=True, color=RC_NAVY, font=FONT)
 
     if qr and qr.queues:
-        top_ab = sorted((q for q in qr.queues if q.abandoned > 0 and q.tier != "D"),
-                        key=lambda q: q.abandoned, reverse=True)[:10]
+        # Exclude pure routing/overflow queues (0 ever answered): in RingCentral's
+        # queue analytics a call transferred OUT of a reception/overflow queue is
+        # recorded as "abandoned" there even though it was answered after transfer.
+        # Those queues show a misleading ~100% abandon rate and are not where
+        # callers actually give up, so they don't belong in a "most-abandoned" list.
+        top_ab = sorted((q for q in qr.queues
+                         if q.abandoned > 0 and q.tier != "D"
+                         and getattr(q, "answered", 0) > 0),
+                        key=lambda q: q.abandoned, reverse=True)[:8]
         _abandon_table_qr(s, top_ab, rx, Inches(2.55), Inches(7.85))
-        if any(getattr(q, "answered", None) == 0 and q.inbound > 0 for q in top_ab):
-            _text(s, "† unstaffed queue — 0 agents ever answered (a routing/staffing fix), not a data error.",
-                  rx, Inches(6.02), Inches(7.85), Inches(0.3), size=8, italic=True, color=MUTED)
+        _text(s, "Staffed queues only. Pure routing/overflow queues (0 agents) are excluded — a call "
+                 "transferred onward is logged as “abandoned” there but was answered after transfer.",
+              rx, Inches(6.02), Inches(7.85), Inches(0.4), size=8, italic=True, color=MUTED)
         # Wait-time / SLA context strip
         bits = []
         if qr.avg_wait:
@@ -601,7 +602,7 @@ def _slide3(prs, r: PipelineResult, ctx, narr):
         _abandon_table(s, top_ab, rx, Inches(2.55), Inches(7.85))
 
     # Takeaway strip
-    _text(s, "AI Receptionist answers instantly — recovering abandoned callers and taking many "
+    _text(s, "AI Receptionist answers instantly — catching missed calls 24/7 and taking many "
              "short, routine calls so staff focus on revenue conversations.",
           Inches(0.5), Inches(6.95), Inches(12.3), Inches(0.4),
           size=11.5, italic=True, color=RC_NAVY, align=PP_ALIGN.CENTER)
@@ -720,45 +721,45 @@ _DEST_COLOR = {
 }
 
 
-def _unstaffed_queues(r: PipelineResult):
-    """Queues with inbound calls but zero ever answered — config/staffing fixes."""
-    qr = r.queues_report
-    if not (qr and qr.queues):
-        return []
-    return [q for q in qr.queues
-            if q.answered == 0 and q.inbound > 0 and (q.tier or "C") != "D"]
-
 
 def _slide_config_vs_air(prs, r: PipelineResult, ctx, narr):
     s = prs.slides.add_slide(prs.slide_layouts[6])
     _bg(s)
     _logo(s)
-    _title_block(s, narr.get("title", "What queue config can fix — and what needs always-on coverage"),
+    _title_block(s, narr.get("title", "Genuine missed calls — split by when they arrived"),
                  narr.get("subtitle",
-                          "Separating calls recoverable by routing/staffing from the structural "
-                          "gap that no configuration can answer"))
+                          "De-duplicated from the call records; a call answered after transfer between "
+                          "queues is never counted as lost. Split by staffed vs. unstaffed hours."))
 
     total = r.total_missed
-    unstaffed = _unstaffed_queues(r)
-    config_fixable = sum(q.abandoned for q in unstaffed)
-    structural = max(total - config_fixable, 0)
+    # Split the transfer-safe, session-deduplicated miss count by WHEN it arrived —
+    # the only honest, single-source way to separate the structural after-hours floor
+    # from the business-hours overflow gap. (The old "config-fixable via unstaffed
+    # queues" number came from the Queues report's per-queue abandons, which count a
+    # call transferred out of a reception/overflow queue as "abandoned" there — so it
+    # double-counted routed calls that were actually answered elsewhere.)
     split = _missed_time_split(r)
-    after_hours = split["after"] if split else 0
+    if split and split["total"]:
+        base, after, business = split["total"], split["after"], split["business"]
+    else:
+        base, after, business = total, 0, total
+    after_pct = round(after / base * 100) if base else 0
+    bus_pct = round(business / base * 100) if base else 0
 
-    # Three flow cards: total -> config-fixable -> structural (AIR)
+    # Three flow cards: total -> after-hours floor -> business-hours overflow
     cy, ch = Inches(2.4), Inches(2.9)
     cards = [
         (Inches(0.5), Inches(3.55), CARD_BG, RC_NAVY, MUTED,
-         "TOTAL GENUINE MISSED", f"{total:,}", "external inbound · spam-filtered · de-duplicated",
-         "Every inbound call that never reached a person."),
+         "TOTAL GENUINE MISSED", f"{total:,}", "session-deduplicated · transfers followed across queues",
+         "Every inbound call that never reached a person, anywhere."),
         (Inches(4.78), Inches(3.55), RGBColor(0xFB,0xF3,0xE0), RC_GOLD, MUTED,
-         "CONFIG-FIXABLE (PRO SERVICES)", f"{config_fixable:,}",
-         f"{len(unstaffed)} unstaffed queue{'s' if len(unstaffed)!=1 else ''} · 0 agents ever answered",
-         "Routing/staffing fix — no new licenses required."),
+         "AFTER HOURS — NO ONE ON SHIFT", f"{after:,}",
+         f"{after_pct}% of misses · arrived outside staffed hours",
+         "Only always-on coverage can answer these."),
         (Inches(9.06), Inches(3.77), RGBColor(0xFC,0xEC,0xEC), RC_RED, MUTED,
-         "STRUCTURAL GAP — NEEDS ALWAYS-ON COVERAGE", f"{structural:,}",
-         "Calls arriving when staff are busy, after hours, or at peak",
-         "No routing rule answers a call when no human is free."),
+         "DURING BUSINESS HOURS — EVERY AGENT BUSY", f"{business:,}",
+         f"{bus_pct}% of misses · staff on shift, all lines full",
+         "An overflow/capacity gap — not a routing misconfiguration."),
     ]
     for x, w, bg, numcol, subcol, head, big, sub, foot in cards:
         _rect(s, x, cy, w, ch, bg, radius=True)
@@ -777,24 +778,18 @@ def _slide_config_vs_air(prs, r: PipelineResult, ctx, narr):
     _text(s, "=", Inches(8.46), cy + Inches(1.0), Inches(0.6), Inches(0.8),
           size=34, bold=True, color=RC_ORANGE, align=PP_ALIGN.CENTER)
 
-    # Unstaffed-queue detail line under the middle card
-    if unstaffed:
-        names = " · ".join(f"{q.name} ({q.abandoned:,})" for q in unstaffed[:3])
-        _text(s, f"Unstaffed: {names}", Inches(4.78), cy + ch + Inches(0.05),
-              Inches(4.0), Inches(0.5), size=8.5, italic=True, color=RC_GOLD)
-
-    # Bottom emphasis band — the after-hours floor config literally cannot touch
-    if split and after_hours:
-        ah_pct = round(after_hours / split["total"] * 100) if split["total"] else 0
-        _punch(s, [(f"{after_hours:,} ", {"bold": True, "size": 17, "color": RC_ORANGE, "font": FONT}),
-                   (f"of the missed calls ({ah_pct}%) arrive entirely after hours — when no one is "
-                    "scheduled. ", {"size": 12.5, "color": ICE, "font": FONT}),
-                   ("Configuration cannot recover a single one; only always-on coverage can.",
+    # Bottom emphasis band — the business-hours capacity gap (the larger, most
+    # defensible finding: staff were on shift, every agent already on a call).
+    if base and business:
+        _punch(s, [(f"{business:,} ", {"bold": True, "size": 17, "color": RC_ORANGE, "font": FONT}),
+                   (f"of the {total:,} misses ({bus_pct}%) happened while staff were on shift — "
+                    "every agent already on a call. ", {"size": 12.5, "color": ICE, "font": FONT}),
+                   ("A capacity gap, not a routing error: no queue rule answers a call when no human is free.",
                     {"size": 12.5, "bold": True, "color": WHITE, "font": FONT})],
               y=Inches(6.05))
     else:
-        _punch(s, [("Even with perfectly tuned routing, the structural gap above remains — "
-                    "it is answered only by always-on coverage, not by reconfiguring queues.",
+        _punch(s, [("Every miss above is de-duplicated across queues — a call answered after transfer "
+                    "is never counted as lost. Only always-on coverage answers a call when no human is free.",
                     {"size": 13, "bold": True, "color": WHITE, "font": FONT})],
               y=Inches(6.05))
     _footer(s)
@@ -1321,11 +1316,9 @@ def build_deck(result: PipelineResult, run_id: str, customer: str, ae_name: str,
     narr2 = _narr_titles(ctx, prior_instructions, "slide2")
     narr_hourly = {"title": "Calls slip away after hours, on weekends — and even midday",
                    "subtitle": f"Inbound miss rate by hour of day · {result.reporting_period} · when the business closes or gets busy, calls go unanswered"}
-    if qr and qr.inbound:
-        narr3_sub = (f"{qr.abandoned:,} of {qr.inbound:,} queue callers abandoned "
-                     f"({qr.abandon_rate*100:.0f}%) · short routine calls · {result.reporting_period}")
-    else:
-        narr3_sub = f"Abandoned-in-queue callers and short routine calls · customer-facing queues · {result.reporting_period}"
+    narr3_sub = (f"{result.total_missed:,} genuine misses AIR can answer + "
+                 f"{result.answered_under_60:,} short routine calls it can deflect · "
+                 f"session-deduplicated · {result.reporting_period}")
     narr3 = {"title": "Where AI Receptionist captures revenue today",
              "subtitle": narr3_sub}
 
