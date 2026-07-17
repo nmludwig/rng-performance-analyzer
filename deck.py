@@ -60,35 +60,19 @@ SLIDE_H = Inches(7.5)
 
 
 def _bg(slide, *, warm=False):
-    """Flat full-bleed background: navy for cover/closing (warm=True), white otherwise.
+    """Full-bleed RingCentral gradient background (rc-presentation-template skill).
 
-    Clean and minimal to match the approved decks — no gradient art. Navy slides
-    get the concentric corner-circle motif bled off the bottom-right.
+    Warm orange→lavender gradient for covers/closing (warm=True); light pastel
+    gradient for content slides. The gradient IS the brand's visual identity, so
+    every slide is backed by the pre-rendered PNG rather than a flat fill.
     """
-    fill = NAVY if warm else WHITE
-    rect = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, SLIDE_W, SLIDE_H)
-    rect.fill.solid(); rect.fill.fore_color.rgb = fill
-    rect.line.fill.background()
-    rect.shadow.inherit = False
-    # Send the rectangle to the very back so all content renders on top of it.
+    img = BG_WARM if warm else BG_LIGHT
+    pic = slide.shapes.add_picture(img, 0, 0, SLIDE_W, SLIDE_H)
+    # Send the picture to the very back so all content renders on top of it.
     spTree = slide.shapes._spTree
-    spTree.remove(rect._element)
-    spTree.insert(2, rect._element)
-    if warm:
-        _corner_circles(slide)
-    return rect
-
-
-def _corner_circles(slide):
-    """Two concentric circles bled off the bottom-right corner (navy motif)."""
-    big = slide.shapes.add_shape(MSO_SHAPE.OVAL, Inches(10.4), Inches(4.5),
-                                 Inches(4.2), Inches(4.2))
-    big.fill.solid(); big.fill.fore_color.rgb = NAVY_CARD
-    big.line.fill.background(); big.shadow.inherit = False
-    small = slide.shapes.add_shape(MSO_SHAPE.OVAL, Inches(12.5), Inches(6.5),
-                                   Inches(1.7), Inches(1.7))
-    small.fill.solid(); small.fill.fore_color.rgb = RC_ORANGE
-    small.line.fill.background(); small.shadow.inherit = False
+    spTree.remove(pic._element)
+    spTree.insert(2, pic._element)
+    return pic
 
 
 def _text(slide, text, left, top, width, height, *, size=14, bold=False,
@@ -167,16 +151,10 @@ def _circle(slide, left, top, dia, fill, text=None, *, text_color=WHITE, size=12
 
 
 def _logo(slide, *, warm=False):
-    # Text wordmark to match the approved decks: an orange dot + "Ring" (white on
-    # navy / dark on white) + "Central" (always orange). Crisp at any scale.
-    dot = slide.shapes.add_shape(MSO_SHAPE.OVAL, Inches(0.5), Inches(0.42),
-                                 Inches(0.16), Inches(0.16))
-    dot.fill.solid(); dot.fill.fore_color.rgb = RC_ORANGE
-    dot.line.fill.background(); dot.shadow.inherit = False
-    ring_col = WHITE if warm else RC_NAVY
-    _rich(slide, [[("Ring", {"bold": True, "size": 17, "color": ring_col, "font": FONT}),
-                   ("Central", {"bold": True, "size": 17, "color": RC_ORANGE, "font": FONT})]],
-          Inches(0.72), Inches(0.3), Inches(3.0), Inches(0.4), anchor=MSO_ANCHOR.MIDDLE)
+    # Official RingCentral wordmark PNG (rc-presentation-template skill): white on
+    # warm-gradient slides, blue/orange on light content slides. Top-left corner.
+    img = LOGO_WHITE if warm else LOGO_COLOR
+    slide.shapes.add_picture(img, Inches(0.5), Inches(0.35), width=Inches(1.95))
 
 
 def _footer(slide, page=None, *, warm=False):
@@ -275,16 +253,17 @@ def _slide_cover(prs, r: PipelineResult, ctx, ae_name):
     _WARM_SLIDES.add(len(prs.slides))
     _logo(s, warm=True)
     customer = ctx.get("customer", "your business")
-    _eyebrow(s, f"Prepared for {customer}  ·  Business case", Inches(0.5), Inches(2.55))
+    _eyebrow(s, f"Prepared for {customer}  ·  Business case", Inches(0.5), Inches(2.55),
+             color=WHITE)
     _hero(s, "The revenue hiding in", "your missed calls.", Inches(0.5), Inches(3.05),
-          size=48, dark=True)
+          size=48, dark=True, line2_color=WHITE)
     _text(s, f"RingCentral Performance Reports  ·  {r.reporting_period}  ·  "
              "every figure derived from your own call data.",
           Inches(0.52), Inches(5.35), Inches(11.0), Inches(0.5),
-          size=14, color=ICE, font=FONT)
+          size=14, color=WHITE, font=FONT)
     if ae_name:
         _text(s, f"Prepared by {ae_name}", Inches(0.52), Inches(6.7), Inches(8.0), Inches(0.35),
-              size=11, color=RGBColor(0x8A, 0x93, 0xA5), font=FONT)
+              size=11, color=WHITE, font=FONT)
 
 
 # ---------------------------------------------------------------------------
@@ -1115,9 +1094,9 @@ def _slide_next(prs, r: PipelineResult, ctx, narr):
     rec_lo = cap_hi * m["rev_missed_per_year"] * aov
     air_year = m["air_cost_year"]
 
-    _eyebrow(s, "The recommendation", Inches(0.5), Inches(1.95))
+    _eyebrow(s, "The recommendation", Inches(0.5), Inches(1.95), color=WHITE)
     _hero(s, "Answer every call.", "Recover the revenue.", Inches(0.5), Inches(2.45),
-          size=44, dark=True)
+          size=44, dark=True, line2_color=WHITE)
 
     # Three ROI stat cards on navy (transparent-navy cards).
     cards = [
@@ -1135,7 +1114,7 @@ def _slide_next(prs, r: PipelineResult, ctx, narr):
     _text(s, "Even at a conservative capture rate on revenue-line missed calls, the return dwarfs the cost — "
              "validated against your own order value.",
           Inches(0.52), Inches(6.55), Inches(11.5), Inches(0.5),
-          size=12.5, italic=True, color=ICE, font=FONT)
+          size=12.5, italic=True, color=WHITE, font=FONT)
     _footer(s, warm=True)
 
 
