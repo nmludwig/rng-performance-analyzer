@@ -295,9 +295,11 @@ def _slide2(prs, r: PipelineResult, ctx, narr, sales_queue_calls):
     s = prs.slides.add_slide(prs.slide_layouts[6])
     _bg(s)
     _logo(s)
+    # Deterministic, plain-English source line — never LLM-generated, so the
+    # methodology wording stays consistent and defensible across every deck.
     _title_block(s, narr.get("title", "We miss a lot of calls — and every miss is a lost order"),
-                 narr.get("subtitle",
-                          f"Customer-facing queues · {r.reporting_period} · session-deduplicated · spam-filtered"))
+                 f"Source: RingCentral call detail records, {r.reporting_period} · "
+                 "one call is counted once, no matter how many agents it rang")
 
     # Top row — three big-number stat cards.
     cy, cw, ch, gap = Inches(2.15), Inches(3.95), Inches(1.75), Inches(0.24)
@@ -341,6 +343,21 @@ def _slide2(prs, r: PipelineResult, ctx, narr, sales_queue_calls):
         _text(s, f"Separately, {abandoned_n:,} callers abandoned in queue before reaching anyone — "
                  "a distinct measure, not part of the split above.",
               rx, by + Inches(0.02), rw, Inches(0.55), size=10, italic=True, color=MUTED)
+
+    # Plain-English methodology footnote — the "why you can trust this number"
+    # line an AE can point to. Explains Session ID de-duplication in customer
+    # language and shows the exact counts, so nothing looks hidden.
+    _rich(s, [[
+        ("How the count is cleaned — and why it's conservative:  ", {"bold": True, "size": 9.5, "color": RC_NAVY}),
+        (f"RingCentral logs every ring of a call as a separate line, so a call ringing several agents "
+         f"appears several times. We group lines by their shared Session ID so each call counts once, not "
+         f"many times ({r.raw_inbound_legs:,} raw lines → {r.inbound_sessions:,} real calls; "
+         f"{r.phantom_legs_removed:,} duplicate rings removed). We also set aside {r.spam_sessions_removed:,} "
+         f"calls whose entire duration — ring included — was under 5 seconds: misdials, wrong numbers and "
+         f"auto-dialer hang-ups too brief for anyone to answer. Both steps only shrink the number, never "
+         f"inflate it — no genuine call is counted twice or dropped.",
+         {"size": 9.5, "color": MUTED})
+    ]], Inches(0.5), Inches(6.72), Inches(12.4), Inches(0.62), line_spacing=1.03)
 
     _footer(s)
 

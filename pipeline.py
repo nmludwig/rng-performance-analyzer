@@ -6,7 +6,11 @@ Methodology (locked, validated against real FBM export):
 - Unit of analysis = session (grouped by Session Id), inbound only.
 - Session ID deduplication removes phantom ring legs (one call routed to N
   agents counts once, not N times).
-- Spam filter: any session whose maximum leg Call Length <= 5s is excluded.
+- Sub-5-second filter: a session is excluded only when its LONGEST leg's Call
+  Length is <= 5s. Call Length includes ring time, so genuine missed calls that
+  rang 20-30s are kept; only calls where the whole thing lasted <5s (misdials,
+  wrong numbers, auto-dialer hang-ups too brief to answer) are removed. This
+  lowers the missed-call count, so it is conservative by construction.
 - Per-session outcome priority: Answered > VM/Abandoned > VM/Missed >
   Abandoned > Missed. VM/Abandoned and VM/Missed are kept separate internally
   (never merged); the deck's "voicemail" line is a display-only grouping.
