@@ -22,6 +22,8 @@ app = Flask(__name__)
 app.secret_key = os.environ["SECRET_KEY"]
 app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50 MB
 
+APP_VERSION = "1.0.0"
+
 UPLOAD_FOLDER = Path(tempfile.gettempdir()) / "rc_analyzer_uploads"
 UPLOAD_FOLDER.mkdir(exist_ok=True)
 
@@ -147,7 +149,8 @@ ADMIN_EMAILS = {
 
 @app.context_processor
 def _inject_is_admin():
-    return {"is_admin": session.get("user_email", "").strip().lower() in ADMIN_EMAILS}
+    return {"is_admin": session.get("user_email", "").strip().lower() in ADMIN_EMAILS,
+            "app_version": APP_VERSION}
 
 
 @app.route("/admin")

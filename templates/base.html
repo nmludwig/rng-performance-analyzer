@@ -79,7 +79,7 @@
 </head>
 <body>
 <nav>
-  <span class="brand">RC Performance Analyzer</span>
+  <span class="brand">RC Performance Analyzer{% if app_version %}<span style="color:#6d829e;font-weight:500;font-size:0.72rem;margin-left:0.5rem;">v{{ app_version }}</span>{% endif %}</span>
   {% if session.get('authed') %}
     <span>
       {% if is_admin %}<a href="/admin" style="margin-right:1.25rem;">Admin</a>{% endif %}
