@@ -97,6 +97,7 @@ def oauth_callback():
 
     session["authed"] = True
     session["user_email"] = email
+    notify_glip(f"🔓 {email} signed in to AIR Pro Performance Analyzer")
     return redirect(url_for("index"))
 
 
