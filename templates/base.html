@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>RingCentral Performance Analyzer</title>
+  <title>AIR Pro Performance Analyzer</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap" rel="stylesheet">
@@ -116,7 +116,7 @@
 <nav>
   <span class="brand">
     <img src="{{ url_for('static', filename='logo_color.png') }}" alt="RingCentral">
-    <span class="app-name">Performance Analyzer{% if app_version %}<span class="ver">v{{ app_version }}</span>{% endif %}</span>
+    <span class="app-name">AIR Pro Performance Analyzer{% if app_version %}<span class="ver">v{{ app_version }}</span>{% endif %}</span>
   </span>
   {% if session.get('authed') %}
     <span class="nav-links">
