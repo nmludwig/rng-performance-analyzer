@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>RC Performance Analyzer</title>
+  <title>RingCentral Performance Analyzer</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap" rel="stylesheet">
@@ -11,24 +11,59 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: "Inter Tight", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: #062E5C;
-      background: linear-gradient(160deg, #062E5C 0%, #04223f 55%, #03182d 100%);
+      /* RingCentral Q1 2026 light pastel gradient (rc-presentation-template) */
+      background: #FFF0E8;
+      background: linear-gradient(135deg, #FFF0E8 0%, #F5EAF5 55%, #EAF0FA 100%);
       background-attachment: fixed;
       color: #1a1a2e;
       min-height: 100vh;
     }
     nav {
-      background: #03182d;
-      border-bottom: 2px solid #FF8800;
+      background: #fff;
       padding: 0 2rem;
-      height: 56px;
+      height: 64px;
       display: flex;
       align-items: center;
       justify-content: space-between;
+      box-shadow: 0 1px 6px rgba(6,46,92,0.06);
+      position: relative;
+      z-index: 3;
     }
-    nav .brand { color: #ff8800; font-weight: 700; font-size: 1.1rem; letter-spacing: 0.02em; }
-    nav a { color: #cdd9ea; text-decoration: none; font-size: 0.9rem; }
+    nav .brand { display: flex; align-items: center; gap: 0.85rem; }
+    nav .brand img { height: 24px; width: auto; display: block; }
+    nav .brand .app-name {
+      color: #1a1a2e; font-weight: 600; font-size: 0.82rem; letter-spacing: 0.01em;
+      background: #f1f2f5; border-radius: 20px; padding: 0.32rem 0.85rem;
+    }
+    nav .brand .ver { color: #9aa2b1; font-weight: 500; font-size: 0.68rem; margin-left: 0.4rem; }
+    nav .nav-links { display: flex; align-items: center; gap: 1.25rem; }
+    nav a { color: #444; text-decoration: none; font-size: 0.9rem; font-weight: 500; }
     nav a:hover { color: #FF8800; }
+    nav a.nav-login {
+      background: #FF8800; color: #fff; padding: 0.5rem 1.4rem; border-radius: 22px;
+      font-weight: 700; font-size: 0.9rem;
+    }
+    nav a.nav-login:hover { color: #fff; opacity: 0.9; }
+
+    /* Full-bleed warm-gradient hero band (RingCentral Q1 2026 template) */
+    .hero {
+      background: linear-gradient(120deg, #FF7A35 0%, #FFB347 42%, #D4A5C9 74%, #A8C8E8 100%);
+      padding: 3.4rem 1.5rem 3.8rem;
+      text-align: center;
+      position: relative;
+      z-index: 1;
+    }
+    .hero .eyebrow {
+      color: #fff; font-weight: 700; font-size: 0.82rem; letter-spacing: 0.16em;
+      text-transform: uppercase; margin-bottom: 0.9rem; opacity: 0.95;
+    }
+    .hero h1 {
+      color: #1a1a1a; font-weight: 800; font-size: 2.9rem; line-height: 1.08;
+      margin: 0 auto 1rem; max-width: 14ch;
+    }
+    .hero .hero-sub {
+      color: #fff; font-size: 1.05rem; line-height: 1.5; max-width: 34rem; margin: 0 auto;
+    }
     .container { max-width: 860px; margin: 0 auto; padding: 2rem 1rem; }
     .card {
       background: #fff;
@@ -79,14 +114,22 @@
 </head>
 <body>
 <nav>
-  <span class="brand">RC Performance Analyzer{% if app_version %}<span style="color:#6d829e;font-weight:500;font-size:0.72rem;margin-left:0.5rem;">v{{ app_version }}</span>{% endif %}</span>
+  <span class="brand">
+    <img src="{{ url_for('static', filename='logo_color.png') }}" alt="RingCentral">
+    <span class="app-name">Performance Analyzer{% if app_version %}<span class="ver">v{{ app_version }}</span>{% endif %}</span>
+  </span>
   {% if session.get('authed') %}
-    <span>
-      {% if is_admin %}<a href="/admin" style="margin-right:1.25rem;">Admin</a>{% endif %}
+    <span class="nav-links">
+      {% if is_admin %}<a href="/admin">Admin</a>{% endif %}
       <a href="/logout">Sign out</a>
+    </span>
+  {% else %}
+    <span class="nav-links">
+      <a href="{{ url_for('login') }}" class="nav-login">Login</a>
     </span>
   {% endif %}
 </nav>
+{% block hero %}{% endblock %}
 <div class="container">
   {% with messages = get_flashed_messages() %}
     {% if messages %}
