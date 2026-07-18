@@ -160,13 +160,20 @@ def notify_glip(text: str) -> None:
     if not GLIP_WEBHOOK_URL:
         return
     try:
-        payload = json.dumps({"text": text}).encode("utf-8")
+        # ensure_ascii=True keeps the body pure ASCII (emoji become \uXXXX
+        # escapes, which RingCentral renders correctly) so the request never
+        # depends on the server's locale for encoding.
+        payload = json.dumps({"text": text}, ensure_ascii=True).encode("ascii")
         req = urllib.request.Request(
             GLIP_WEBHOOK_URL, data=payload,
             headers={"Content-Type": "application/json"}, method="POST")
-        urllib.request.urlopen(req, timeout=5).read()
-    except Exception:
-        pass
+        resp = urllib.request.urlopen(req, timeout=5)
+        resp.read()
+    except Exception as e:
+        try:
+            app.logger.warning("notify_glip failed: %s: %s", type(e).__name__, e)
+        except Exception:
+            pass
 
 
 @app.context_processor
