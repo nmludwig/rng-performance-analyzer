@@ -169,10 +169,17 @@ _WARM_SLIDES = set()
 
 
 def _stamp_page_numbers(prs):
+    # Template footer (rc-presentation-template skill): every slide carries three
+    # 8pt elements — slide number (left), "Confidential" (center), copyright
+    # (right). White on warm-gradient slides, muted gray on light content slides.
     for i, slide in enumerate(prs.slides, 1):
         col = WHITE if i in _WARM_SLIDES else GRAY
         _text(slide, str(i), Inches(0.45), Inches(7.12), Inches(0.5), Inches(0.3),
               size=8, color=col)
+        _text(slide, "Confidential", Inches(5.67), Inches(7.12), Inches(2.0), Inches(0.3),
+              size=8, color=col, align=PP_ALIGN.CENTER)
+        _text(slide, "©2026 RingCentral", Inches(10.83), Inches(7.12), Inches(2.05), Inches(0.3),
+              size=8, color=col, align=PP_ALIGN.RIGHT)
 
 
 def _title_block(slide, title, subtitle, *, warm=False):
@@ -306,7 +313,7 @@ def _slide2(prs, r: PipelineResult, ctx, narr, sales_queue_calls):
     bpd = _business_days(r)
     stats = [
         (f"{r.total_missed:,}", "genuine missed calls\nexternal inbound only", RC_RED),
-        (f"{r.miss_rate*100:.0f}%", f"of {r.universe_sessions:,} inbound\nsessions went unanswered", RC_NAVY),
+        (f"{r.miss_rate*100:.0f}%", f"of {r.universe_sessions:,} inbound\ncalls were missed", RC_NAVY),
         (f"{round(r.total_missed/bpd):,}", "missed every business day\n(Mon–Fri average)", RC_ORANGE),
     ]
     for big, label, col in stats:
@@ -487,7 +494,7 @@ def _slide_hourly(prs, r: PipelineResult, ctx, narr):
 
     _punch(s, [("AIR answers instantly — ", {"bold": True, "size": 15, "color": WHITE, "font": FONT}),
                ("every hour, every day.", {"size": 15, "color": ICE, "font": FONT})],
-           y=Inches(6.75), h=Inches(0.55))
+           y=Inches(6.62), h=Inches(0.45))
     _footer(s)
 
 
@@ -553,12 +560,12 @@ def _slide3(prs, r: PipelineResult, ctx, narr):
     # Card B — answered under 60s
     by, bh = Inches(4.55), Inches(2.15)
     _rect(s, lx, by, lw, bh, CARD_BG, radius=True)
-    _text(s, "ANSWERED CALLS UNDER\n60 SECONDS", lx + Inches(0.28), by + Inches(0.22),
+    _text(s, "SERVICED CALLS UNDER\n60 SECONDS", lx + Inches(0.28), by + Inches(0.22),
           lw - Inches(0.5), Inches(0.6), size=11.5, bold=True, color=MUTED, font=FONT)
     _text(s, f"{r.answered_under_60:,}", lx + Inches(0.24), by + Inches(0.74), lw - Inches(0.3), Inches(1.0),
           size=54, bold=True, color=RC_ORANGE, font=FONT, wrap=False)
     _rich(s, [[(f"{r.under_60_pct*100:.0f}%", {"bold": True, "size": 12, "color": RC_NAVY}),
-               (" of answered calls ran under 60s — routine volume an AI receptionist could handle", {"size": 11, "color": MUTED})]],
+               (" of serviced calls ran under 60s — routine volume an AI receptionist could handle", {"size": 11, "color": MUTED})]],
           lx + Inches(0.28), by + Inches(1.6), lw - Inches(0.5), Inches(0.5))
 
     # Right — most-abandoned queues table (from the Queues report when present)
@@ -714,6 +721,88 @@ def _missed_time_split(r: PipelineResult):
     return {"total": total, "after": after, "business": total - after}
 
 
+def _capacity_split(r: PipelineResult):
+    """Split genuine missed calls into config-fixable vs. truly-missed (needs AIR).
+
+    The honest, objection-proof cut. For each missed call we ask: at the moment it
+    arrived, was the operation already at capacity FOR THAT TIME SLOT?
+
+      - We measure concurrency (simultaneous answered calls) minute-by-minute from
+        the answered-call durations.
+      - Capacity is schedule-aware: the 95th-percentile concurrency observed in the
+        same hour-of-week bin (so a quiet Saturday morning isn't judged against a
+        busy Tuesday afternoon).
+      - A business-hours miss that arrived while concurrency was AT/ABOVE that slot's
+        capacity is "truly missed" — every agent that time slot ever fields was
+        already busy, so no routing change recovers it.
+      - A business-hours miss with head-room is "config-fixable" — better routing or
+        staffing could have reached an available person.
+      - Every after-hours miss (no one scheduled) is "truly missed."
+
+    Returns dict(total, config_fixable, structural, structural_after, structural_bh)
+    or None if the timestamp/duration signal isn't available.
+    """
+    import numpy as np
+    import pandas as pd
+    df = r.sessions_df
+    if df is None or "start_time" not in df.columns or "in_business_hours" not in df.columns:
+        return None
+    df = df.copy()
+    if "is_spam" in df.columns:
+        df = df[~df["is_spam"].astype(bool)]
+    if "tier" in df.columns:
+        df = df[df["tier"].isin(["A", "B", "C"])]
+    df["_st"] = pd.to_datetime(df["start_time"], errors="coerce")
+    df = df[df["_st"].notna()]
+    if df.empty:
+        return None
+    df["_missed"] = df["outcome"].astype(str).str.strip().str.lower() != "answered"
+    df["_bh"] = df["in_business_hours"].astype(bool)
+
+    ans = df[~df["_missed"]].copy()
+    ans["_dur"] = pd.to_numeric(ans["handle_seconds"], errors="coerce").fillna(0).clip(lower=1)
+
+    t0 = df["_st"].min().floor("min")
+    mm = lambda x: int((x - t0).total_seconds() // 60)
+    N = mm(df["_st"].max()) + 2
+    delta = np.zeros(N + 2)
+    for s, d in zip(ans["_st"], ans["_dur"]):
+        a = mm(s); b = mm(s + pd.Timedelta(seconds=float(d)))
+        delta[a] += 1; delta[min(b + 1, N + 1)] -= 1
+    conc = np.cumsum(delta)
+
+    def how(mi):
+        tt = t0 + pd.Timedelta(minutes=mi)
+        return tt.dayofweek * 24 + tt.hour
+    minute_how = np.array([how(i) for i in range(N + 1)])
+    minute_conc = conc[:N + 1]
+    cap = {}
+    for bkt in range(168):
+        vals = minute_conc[minute_how == bkt]
+        cap[bkt] = np.percentile(vals, 95) if len(vals) else 0.0
+
+    miss = df[df["_missed"]]
+    miss_bh = miss[miss["_bh"]]
+    structural_after = int((~miss["_bh"]).sum())
+    structural_bh = 0
+    config_fixable = 0
+    for s in miss_bh["_st"]:
+        c = conc[mm(s)]
+        cp = cap[how(mm(s))]
+        if cp > 0 and c >= cp:
+            structural_bh += 1
+        else:
+            config_fixable += 1
+    structural = structural_after + structural_bh
+    return {
+        "total": int(len(miss)),
+        "config_fixable": int(config_fixable),
+        "structural": int(structural),
+        "structural_after": int(structural_after),
+        "structural_bh": int(structural_bh),
+    }
+
+
 _DEST_COLOR = {
     "Ring group / front desk": RC_ORANGE,
     "Direct to a person's extension": RC_BLUE,
@@ -727,40 +816,42 @@ def _slide_config_vs_air(prs, r: PipelineResult, ctx, narr):
     s = prs.slides.add_slide(prs.slide_layouts[6])
     _bg(s)
     _logo(s)
-    _title_block(s, narr.get("title", "Genuine missed calls — split by when they arrived"),
+    _title_block(s, narr.get("title", "What better setup can fix — and what only AI can"),
                  narr.get("subtitle",
-                          "De-duplicated from the call records; a call answered after transfer between "
-                          "queues is never counted as lost. Split by staffed vs. unstaffed hours."))
+                          "We separate the calls a smarter queue setup would catch from the ones that "
+                          "are missed even with a perfect setup — the calls only always-on AI can answer."))
 
     total = r.total_missed
-    # Split the transfer-safe, session-deduplicated miss count by WHEN it arrived —
-    # the only honest, single-source way to separate the structural after-hours floor
-    # from the business-hours overflow gap. (The old "config-fixable via unstaffed
-    # queues" number came from the Queues report's per-queue abandons, which count a
-    # call transferred out of a reception/overflow queue as "abandoned" there — so it
-    # double-counted routed calls that were actually answered elsewhere.)
-    split = _missed_time_split(r)
+    # Honest, objection-proof split: config-fixable (head-room existed) vs. truly
+    # missed even with a perfect setup (arrived when every agent for that time slot
+    # was already busy, or after hours with no one scheduled). See _capacity_split.
+    split = _capacity_split(r)
     if split and split["total"]:
-        base, after, business = split["total"], split["after"], split["business"]
+        base = split["total"]
+        fixable = split["config_fixable"]
+        truly = split["structural"]
+        after = split["structural_after"]
+        at_cap = split["structural_bh"]
     else:
-        base, after, business = total, 0, total
-    after_pct = round(after / base * 100) if base else 0
-    bus_pct = round(business / base * 100) if base else 0
+        base, fixable, truly, after, at_cap = total, 0, total, 0, total
+    fix_pct = round(fixable / base * 100) if base else 0
+    truly_pct = round(truly / base * 100) if base else 0
 
-    # Three flow cards: total -> after-hours floor -> business-hours overflow
+    # Three flow cards: total  −  config-fixable  =  truly missed (needs AI)
     cy, ch = Inches(2.4), Inches(2.9)
     cards = [
         (Inches(0.5), Inches(3.55), CARD_BG, RC_NAVY, MUTED,
-         "TOTAL GENUINE MISSED", f"{total:,}", "session-deduplicated · transfers followed across queues",
-         "Every inbound call that never reached a person, anywhere."),
+         "TOTAL MISSED CALLS", f"{total:,}",
+         "real customer calls that never reached a person",
+         "De-duplicated; a call answered after transfer is never counted as missed."),
         (Inches(4.78), Inches(3.55), RGBColor(0xFB,0xF3,0xE0), RC_GOLD, MUTED,
-         "AFTER HOURS — NO ONE ON SHIFT", f"{after:,}",
-         f"{after_pct}% of misses · arrived outside staffed hours",
-         "Only always-on coverage can answer these."),
-        (Inches(9.06), Inches(3.77), RGBColor(0xFC,0xEC,0xEC), RC_RED, MUTED,
-         "DURING BUSINESS HOURS — EVERY AGENT BUSY", f"{business:,}",
-         f"{bus_pct}% of misses · staff on shift, all lines full",
-         "An overflow/capacity gap — not a routing misconfiguration."),
+         "A BETTER QUEUE SETUP COULD CATCH", f"{fixable:,}",
+         f"{fix_pct}% · a person was free — the call just didn't reach them",
+         "Fixable by routing/staffing changes — no new licenses needed."),
+        (Inches(9.06), Inches(3.55), RGBColor(0xFC,0xEC,0xEC), RC_RED, MUTED,
+         "MISSED EVEN WITH A PERFECT SETUP", f"{truly:,}",
+         f"{truly_pct}% · {after:,} after hours + {at_cap:,} when every agent was busy",
+         "No setup change recovers these — only always-on AI can answer them."),
     ]
     for x, w, bg, numcol, subcol, head, big, sub, foot in cards:
         _rect(s, x, cy, w, ch, bg, radius=True)
@@ -768,10 +859,10 @@ def _slide_config_vs_air(prs, r: PipelineResult, ctx, narr):
               size=10.5, bold=True, color=numcol, font=FONT)
         _text(s, big, x + Inches(0.2), cy + Inches(0.74), w - Inches(0.3), Inches(1.0),
               size=44, bold=True, color=numcol, font=FONT, wrap=False)
-        _text(s, sub, x + Inches(0.24), cy + Inches(1.9), w - Inches(0.44), Inches(0.5),
-              size=10.5, bold=True, color=RC_NAVY, font=FONT)
-        _text(s, foot, x + Inches(0.24), cy + Inches(2.35), w - Inches(0.44), Inches(0.45),
-              size=10, italic=True, color=subcol)
+        _text(s, sub, x + Inches(0.24), cy + Inches(1.9), w - Inches(0.44), Inches(0.55),
+              size=10, bold=True, color=RC_NAVY, font=FONT)
+        _text(s, foot, x + Inches(0.24), cy + Inches(2.4), w - Inches(0.44), Inches(0.45),
+              size=9.5, italic=True, color=subcol)
 
     # Minus / equals connectors between the cards
     _text(s, "−", Inches(4.18), cy + Inches(1.0), Inches(0.6), Inches(0.8),
@@ -779,20 +870,67 @@ def _slide_config_vs_air(prs, r: PipelineResult, ctx, narr):
     _text(s, "=", Inches(8.46), cy + Inches(1.0), Inches(0.6), Inches(0.8),
           size=34, bold=True, color=RC_ORANGE, align=PP_ALIGN.CENTER)
 
-    # Bottom emphasis band — the business-hours capacity gap (the larger, most
-    # defensible finding: staff were on shift, every agent already on a call).
-    if base and business:
-        _punch(s, [(f"{business:,} ", {"bold": True, "size": 17, "color": RC_ORANGE, "font": FONT}),
-                   (f"of the {total:,} misses ({bus_pct}%) happened while staff were on shift — "
-                    "every agent already on a call. ", {"size": 12.5, "color": ICE, "font": FONT}),
-                   ("A capacity gap, not a routing error: no queue rule answers a call when no human is free.",
+    # Bottom emphasis band — concede the fixable bucket, protect the AI number.
+    if base and truly:
+        _punch(s, [("We'll help you fix the setup issues for free. ",
+                    {"size": 12.5, "color": ICE, "font": FONT}),
+                   (f"But {truly:,} calls ", {"bold": True, "size": 17, "color": RC_ORANGE, "font": FONT}),
+                   ("were missed when no person was available to take them — after hours or with every "
+                    "agent already busy. ", {"size": 12.5, "color": ICE, "font": FONT}),
+                   ("No queue setup answers a call when no human is free. That's what AI Receptionist does.",
                     {"size": 12.5, "bold": True, "color": WHITE, "font": FONT})],
               y=Inches(6.05))
     else:
         _punch(s, [("Every miss above is de-duplicated across queues — a call answered after transfer "
-                    "is never counted as lost. Only always-on coverage answers a call when no human is free.",
+                    "is never counted as missed. Only always-on AI answers a call when no human is free.",
                     {"size": 13, "bold": True, "color": WHITE, "font": FONT})],
               y=Inches(6.05))
+    _footer(s)
+
+
+# ---------------------------------------------------------------------------
+# Slide — methodology (trust-builder, up front)
+# ---------------------------------------------------------------------------
+
+def _slide_methodology(prs, r: PipelineResult, ctx):
+    s = prs.slides.add_slide(prs.slide_layouts[6])
+    _bg(s)
+    _logo(s)
+    _title_block(s, "How we measured this — so every number holds up",
+                 "The same call data your team sees, cleaned the way you'd want before trusting it.")
+
+    raw = ctx.get("raw_inbound_legs", 0)
+    phantom = ctx.get("phantom_legs_removed", 0)
+    spam = ctx.get("spam_sessions_removed", 0)
+    clean = ctx.get("universe_sessions", 0)
+
+    x1, x2 = Inches(0.5), Inches(6.67)
+    w = Inches(6.16)
+    y1, y2 = Inches(2.45), Inches(4.2)
+    ch = Inches(1.55)
+    cards = [
+        (x1, y1, "Every call counted once",
+         f"RingCentral logs each ring as its own line. We group them by call, so one call that "
+         f"rings five people counts as one — not five. Removed {phantom:,} duplicate rings."),
+        (x2, y1, "Spam and misdials set aside",
+         f"Calls under 5 seconds — robocalls, wrong numbers, instant hang-ups — are excluded so they "
+         f"don't pad the count. Set aside {spam:,}."),
+        (x1, y2, "Answered anywhere = not missed",
+         "If a call was transferred and someone eventually picked up, we never count it as missed. "
+         "Only calls that never reached any person count as a miss."),
+        (x2, y2, "Real customers, real hours",
+         "External inbound calls only — internal and back-office lines excluded. We track when staff "
+         "were on shift, so an after-hours miss is never confused with a busy-hour one."),
+    ]
+    for x, y, head, body in cards:
+        _bullet_card(s, x, y, w, ch, head, body)
+
+    _punch(s, [(f"Started with {raw:,} raw call logs ", {"size": 12.5, "color": ICE, "font": FONT}),
+               (f"→ cleaned to {clean:,} real customer calls. ",
+                {"bold": True, "size": 14, "color": RC_ORANGE, "font": FONT}),
+               ("Every figure in this deck traces straight back to your own RingCentral reports.",
+                {"size": 12.5, "bold": True, "color": WHITE, "font": FONT})],
+          y=Inches(6.05))
     _footer(s)
 
 
@@ -1316,7 +1454,7 @@ def build_deck(result: PipelineResult, run_id: str, customer: str, ae_name: str,
     # the RingCentral reports — nothing modeled except the one caveated slide.
     narr2 = _narr_titles(ctx, prior_instructions, "slide2")
     narr_hourly = {"title": "Calls slip away after hours, on weekends — and even midday",
-                   "subtitle": f"Inbound miss rate by hour of day · {result.reporting_period} · when the business closes or gets busy, calls go unanswered"}
+                   "subtitle": f"Inbound miss rate by hour of day · {result.reporting_period} · when the business closes or gets busy, calls get missed"}
     narr3_sub = (f"{result.total_missed:,} genuine misses AIR can answer + "
                  f"{result.answered_under_60:,} short routine calls it can deflect · "
                  f"session-deduplicated · {result.reporting_period}")
@@ -1338,6 +1476,7 @@ def build_deck(result: PipelineResult, run_id: str, customer: str, ae_name: str,
     #   6. Illustrative opportunity (single, clearly-caveated money slide)
     #   7. Recommendation & next steps
     _slide_cover(prs, result, ctx, ae_name)      # navy cover
+    _slide_methodology(prs, result, ctx)         # how we measured — trust-builder up front
     _slide_call_reasons(prs, result, ctx, {})   # opener — robust to missing business context
     _slide2(prs, result, ctx, narr2, sales_queue_calls)
     _slide_hourly(prs, result, ctx, narr_hourly)
