@@ -147,6 +147,28 @@ ADMIN_EMAILS = {
 }
 
 
+# Optional RingCentral Glip incoming-webhook URL. Set GLIP_WEBHOOK_URL in the
+# environment (.env) to a https://hooks.ringcentral.com/webhook/v2/... address
+# to mirror idea submissions and app runs into a team chat. Never hardcode it.
+GLIP_WEBHOOK_URL = os.environ.get("GLIP_WEBHOOK_URL", "").strip()
+
+
+def notify_glip(text: str) -> None:
+    """Post a short plain-text notification to the configured Glip webhook.
+    Best-effort: any failure (no URL, network error, bad response) is swallowed
+    so it can never disrupt the user-facing request."""
+    if not GLIP_WEBHOOK_URL:
+        return
+    try:
+        payload = json.dumps({"text": text}).encode("utf-8")
+        req = urllib.request.Request(
+            GLIP_WEBHOOK_URL, data=payload,
+            headers={"Content-Type": "application/json"}, method="POST")
+        urllib.request.urlopen(req, timeout=5).read()
+    except Exception:
+        pass
+
+
 @app.context_processor
 def _inject_is_admin():
     return {"is_admin": session.get("user_email", "").strip().lower() in ADMIN_EMAILS,
@@ -176,12 +198,18 @@ def ideas():
         if not title:
             flash("Please add a short summary of your idea.")
             return redirect(url_for("ideas"))
+        submitter = session.get("user_email", "")
         log_idea({
             "title": title[:200],
             "detail": detail[:4000],
             "category": category[:60],
-            "user_email": session.get("user_email", ""),
+            "user_email": submitter,
         })
+        _cat = f" [{category[:60]}]" if category else ""
+        _detail = f"\n{detail[:500]}" if detail else ""
+        notify_glip(
+            f"💡 New idea from {submitter or 'a user'}{_cat}\n"
+            f"“{title[:200]}”{_detail}")
         flash("Thanks! Your idea was sent to the team.")
         return redirect(url_for("ideas", submitted=1))
     return render_template("ideas.html", submitted=request.args.get("submitted"))
@@ -463,6 +491,10 @@ def api_process_stream(run_id):
             "queues_file": queues_filename,
             "refine": bool(messages),
         }
+        notify_glip(
+            f"▶️ Analyzer run started by {user_email or 'a user'} "
+            f"for {customer or 'a customer'}"
+            + (" (refine)" if messages else ""))
 
         try:
             from pipeline import (parse_sessions, build_result, distinct_queues,
@@ -511,9 +543,14 @@ def api_process_stream(run_id):
                 overrides=overrides,
             )
 
+            _dur = round(time.monotonic() - started, 1)
             log_run({**run_meta, "status": "success",
-                     "duration_s": round(time.monotonic() - started, 1),
+                     "duration_s": _dur,
                      "sessions": int(n_sessions), "queues": len(queues)})
+            notify_glip(
+                f"✅ Deck ready for {customer or 'a customer'} "
+                f"({user_email or 'a user'}) — {n_sessions:,} sessions, "
+                f"{len(queues)} queues, {_dur}s")
             yield ev(stage="done", msg="Deck ready.", pct=100,
                      download_url=download_url,
                      business=_business_summary_from(biz))
@@ -521,11 +558,17 @@ def api_process_stream(run_id):
             log_run({**run_meta, "status": "error",
                      "duration_s": round(time.monotonic() - started, 1),
                      "error": str(e)})
+            notify_glip(
+                f"❌ Analyzer run failed for {customer or 'a customer'} "
+                f"({user_email or 'a user'}): {e}")
             yield ev(error=str(e))
         except Exception as e:
             log_run({**run_meta, "status": "error",
                      "duration_s": round(time.monotonic() - started, 1),
                      "error": f"Processing error: {e}"})
+            notify_glip(
+                f"❌ Analyzer run failed for {customer or 'a customer'} "
+                f"({user_email or 'a user'}): Processing error: {e}")
             yield ev(error=f"Processing error: {e}")
 
     return Response(gen(), mimetype="text/event-stream",
