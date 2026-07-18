@@ -10,3 +10,4 @@ flask_session/
 *.pptx
 .DS_Store
 run_log.jsonl
+ideas.jsonl

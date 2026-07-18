@@ -13,6 +13,47 @@
 {% else %}
 
 <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:1rem;">
+  <h1 style="color:#1B2A4A;font-size:1.6rem;">Ideas & feature requests</h1>
+  <span style="color:#5a6472;font-size:0.85rem;">
+    {{ ideas|length }} idea{{ '' if ideas|length == 1 else 's' }} submitted
+  </span>
+</div>
+
+<div class="card" style="padding:0;overflow:hidden;margin-bottom:2rem;">
+  {% if not ideas %}
+  <p style="padding:2rem;text-align:center;color:#888;">No ideas submitted yet.</p>
+  {% else %}
+  <div style="overflow-x:auto;">
+    <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+      <thead>
+        <tr style="background:#f4f6fa;text-align:left;color:#555;">
+          <th style="padding:0.6rem 0.75rem;white-space:nowrap;">When (UTC)</th>
+          <th style="padding:0.6rem 0.75rem;">From</th>
+          <th style="padding:0.6rem 0.75rem;">Area</th>
+          <th style="padding:0.6rem 0.75rem;">Idea</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for i in ideas %}
+        <tr style="border-top:1px solid #eef1f6;vertical-align:top;">
+          <td style="padding:0.55rem 0.75rem;white-space:nowrap;color:#444;">
+            {{ i.ts|replace('T', ' ')|replace('+00:00', '') }}
+          </td>
+          <td style="padding:0.55rem 0.75rem;white-space:nowrap;">{{ i.user_email or '—' }}</td>
+          <td style="padding:0.55rem 0.75rem;white-space:nowrap;color:#666;">{{ i.category or '—' }}</td>
+          <td style="padding:0.55rem 0.75rem;">
+            <strong style="color:#1B2A4A;">{{ i.title }}</strong>
+            {% if i.detail %}<div style="color:#666;font-size:0.82rem;margin-top:0.2rem;max-width:520px;">{{ i.detail }}</div>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>
+
+<div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:1rem;">
   <h1 style="color:#1B2A4A;font-size:1.6rem;">Run log</h1>
   <span style="color:#5a6472;font-size:0.85rem;">
     {{ runs|length }} run{{ '' if runs|length == 1 else 's' }} · no report data is stored

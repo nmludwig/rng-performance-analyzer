@@ -14,7 +14,7 @@ from flask import (
 )
 from dotenv import load_dotenv
 
-from run_log import log_run, read_runs
+from run_log import log_run, read_runs, log_idea, read_ideas
 
 load_dotenv(override=True)
 
@@ -158,8 +158,33 @@ def admin():
     if not session.get("authed"):
         return redirect(url_for("login"))
     if session.get("user_email", "").strip().lower() not in ADMIN_EMAILS:
-        return render_template("admin.html", runs=None, forbidden=True), 403
-    return render_template("admin.html", runs=read_runs(), forbidden=False)
+        return render_template("admin.html", runs=None, ideas=None, forbidden=True), 403
+    return render_template("admin.html", runs=read_runs(), ideas=read_ideas(),
+                           forbidden=False)
+
+
+@app.route("/ideas", methods=["GET", "POST"])
+def ideas():
+    """Any signed-in employee can suggest a product improvement; submissions
+    surface in the admin view. No customer data is involved."""
+    if not session.get("authed"):
+        return redirect(url_for("login"))
+    if request.method == "POST":
+        title = request.form.get("title", "").strip()
+        detail = request.form.get("detail", "").strip()
+        category = request.form.get("category", "").strip()
+        if not title:
+            flash("Please add a short summary of your idea.")
+            return redirect(url_for("ideas"))
+        log_idea({
+            "title": title[:200],
+            "detail": detail[:4000],
+            "category": category[:60],
+            "user_email": session.get("user_email", ""),
+        })
+        flash("Thanks! Your idea was sent to the team.")
+        return redirect(url_for("ideas", submitted=1))
+    return render_template("ideas.html", submitted=request.args.get("submitted"))
 
 
 def require_auth():

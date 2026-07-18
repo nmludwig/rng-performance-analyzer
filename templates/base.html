@@ -44,6 +44,11 @@
       font-weight: 700; font-size: 0.9rem;
     }
     nav a.nav-login:hover { color: #fff; opacity: 0.9; }
+    nav a.nav-idea {
+      border: 1.5px solid #FF8800; color: #FF8800; padding: 0.42rem 1rem;
+      border-radius: 22px; font-weight: 600; font-size: 0.88rem;
+    }
+    nav a.nav-idea:hover { background: #FF8800; color: #fff; }
 
     /* Full-bleed warm-gradient hero band (RingCentral Q1 2026 template) */
     .hero {
@@ -120,6 +125,7 @@
   </span>
   {% if session.get('authed') %}
     <span class="nav-links">
+      <a href="{{ url_for('ideas') }}" class="nav-idea">💡 Share an idea</a>
       {% if is_admin %}<a href="/admin">Admin</a>{% endif %}
       <a href="/logout">Sign out</a>
     </span>

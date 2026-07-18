@@ -11,7 +11,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 LOG_PATH = Path(__file__).resolve().parent / "run_log.jsonl"
+IDEAS_PATH = Path(__file__).resolve().parent / "ideas.jsonl"
 _LOCK = threading.Lock()
+_IDEAS_LOCK = threading.Lock()
 
 
 def log_run(record: dict) -> None:
@@ -33,6 +35,40 @@ def read_runs(limit: int = 500) -> list[dict]:
     rows = []
     try:
         with open(LOG_PATH, "r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rows.append(json.loads(line))
+                except Exception:
+                    continue
+    except Exception:
+        return []
+    rows.reverse()
+    return rows[:limit]
+
+
+def log_idea(record: dict) -> bool:
+    """Append one product-improvement idea. Returns True on success."""
+    try:
+        record = {"ts": datetime.now(timezone.utc).isoformat(timespec="seconds"), **record}
+        line = json.dumps(record, ensure_ascii=False)
+        with _IDEAS_LOCK:
+            with open(IDEAS_PATH, "a", encoding="utf-8") as fh:
+                fh.write(line + "\n")
+        return True
+    except Exception:
+        return False
+
+
+def read_ideas(limit: int = 500) -> list[dict]:
+    """Return the most recent submitted ideas, newest first."""
+    if not IDEAS_PATH.exists():
+        return []
+    rows = []
+    try:
+        with open(IDEAS_PATH, "r", encoding="utf-8") as fh:
             for line in fh:
                 line = line.strip()
                 if not line:

@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block hero %}
+<div class="hero">
+  <div class="eyebrow">RingCentral · Forward Deployed Engineering</div>
+  <h1 style="max-width:20ch;font-size:2.4rem;">Have an idea to make this better?</h1>
+  <p class="hero-sub">
+    Tell us what would make AIR Pro Performance Analyzer more useful — a missing slide,
+    a new metric, a rough edge. It goes straight to the team.
+  </p>
+</div>
+{% endblock %}
+
+{% block content %}
+<div style="max-width:640px;margin:-2.5rem auto 3rem;">
+  <div class="card" style="padding:2.25rem;">
+    {% if submitted %}
+    <div class="flash" style="background:#e6f7ec;border-color:#1a7f37;color:#155f2a;">
+      Thanks — your idea was sent to the team. Feel free to add another.
+    </div>
+    {% endif %}
+
+    <h2 style="margin-bottom:1.25rem;">Share an idea</h2>
+
+    <form method="POST" action="{{ url_for('ideas') }}">
+      <label for="title">In one line, what's your idea?</label>
+      <input type="text" id="title" name="title" required
+             placeholder="e.g. Add a slide comparing this month vs last month">
+
+      <label for="category">What area is it about? <span style="font-weight:400;color:#999;">(optional)</span></label>
+      <select id="category" name="category"
+              style="width:100%;padding:0.6rem 0.8rem;border:1.5px solid #ddd;border-radius:6px;font-size:0.95rem;margin-bottom:1rem;background:#fff;">
+        <option value="">— pick one —</option>
+        <option>Deck / slide content</option>
+        <option>Data accuracy or methodology</option>
+        <option>Upload / file handling</option>
+        <option>Web app / usability</option>
+        <option>New feature</option>
+        <option>Something else</option>
+      </select>
+
+      <label for="detail">Any more detail? <span style="font-weight:400;color:#999;">(optional)</span></label>
+      <textarea id="detail" name="detail" rows="5"
+                placeholder="What problem would this solve? Who's it for? Anything that helps us understand."
+                style="width:100%;padding:0.6rem 0.8rem;border:1.5px solid #ddd;border-radius:6px;font-size:0.95rem;font-family:inherit;margin-bottom:1rem;resize:vertical;"></textarea>
+
+      <p style="font-size:0.8rem;color:#999;margin:0 0 1.25rem;">
+        Submitted as <strong>{{ session.get('user_email') }}</strong> so the team can follow up.
+      </p>
+
+      <button type="submit" class="btn btn-primary">Send idea →</button>
+    </form>
+  </div>
+</div>
+{% endblock %}
