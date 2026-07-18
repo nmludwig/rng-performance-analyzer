@@ -1,22 +1,20 @@
 {% extends "base.html" %}
-{% block content %}
 
-<!-- Hero -->
-<div style="text-align:center;max-width:680px;margin:0.5rem auto 2.5rem;">
-  <div style="display:inline-block;background:#fff3e8;color:#FF8800;font-weight:700;
-       font-size:0.72rem;letter-spacing:0.08em;text-transform:uppercase;
-       padding:0.35rem 0.85rem;border-radius:999px;margin-bottom:1rem;">
-    AI Receptionist · Missed-Call Business Case
-  </div>
-  <h1 style="font-size:2rem;line-height:1.2;margin-bottom:0.75rem;color:#fff;">
+{% block hero %}
+<div class="hero">
+  <div class="eyebrow">RingCentral · Forward Deployed Engineering</div>
+  <h1 style="max-width:22ch;font-size:2.4rem;">
     Turn a RingCentral call export into a board-ready business case
   </h1>
-  <p style="color:#bccde2;font-size:1.05rem;line-height:1.55;">
+  <p class="hero-sub">
     Upload your two RingCentral Excel exports — the Calls report and the Queues report —
     and Claude builds a polished, RingCentral-branded PowerPoint that quantifies missed
     revenue-line calls, fully derived from your data, no manual number-crunching.
   </p>
 </div>
+{% endblock %}
+
+{% block content %}
 
 <!-- What you'll get: real deck preview -->
 <div class="card" style="background:linear-gradient(180deg,#fbfcfe 0%,#fff 100%);">
