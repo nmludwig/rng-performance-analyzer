@@ -164,7 +164,9 @@ def notify_glip(text: str) -> None:
         # ensure_ascii=True keeps the body pure ASCII (emoji become \uXXXX
         # escapes, which RingCentral renders correctly) so the request never
         # depends on the server's locale for encoding.
-        payload = json.dumps({"text": text}, ensure_ascii=True).encode("ascii")
+        payload = json.dumps(
+            {"activity": "AIR Pro Performance Analyzer", "text": text},
+            ensure_ascii=True).encode("ascii")
         req = urllib.request.Request(
             GLIP_WEBHOOK_URL, data=payload,
             headers={"Content-Type": "application/json"}, method="POST")
