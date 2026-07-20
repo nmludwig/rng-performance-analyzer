@@ -7,6 +7,7 @@ import secrets
 import tempfile
 import urllib.parse
 import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 from flask import (
     Flask, request, session, redirect, url_for,
@@ -97,7 +98,11 @@ def oauth_callback():
 
     session["authed"] = True
     session["user_email"] = email
-    notify_glip(f"🔓 {email} signed in to AIR Pro Performance Analyzer")
+    _glip_event("🔓", "login", [
+        ("User", email),
+        ("Time (UTC)", _utc_now()),
+        ("IP", _client_ip()),
+    ])
     return redirect(url_for("index"))
 
 
@@ -179,6 +184,41 @@ def notify_glip(text: str) -> None:
             pass
 
 
+def _client_ip() -> str:
+    """Best-effort real client IP, honoring the nginx reverse proxy in front of
+    gunicorn. X-Forwarded-For is a comma list (client, proxy1, ...); take the
+    first entry. Falls back to remote_addr when there is no proxy header."""
+    try:
+        fwd = request.headers.get("X-Forwarded-For", "")
+        if fwd:
+            return fwd.split(",")[0].strip()
+        return request.headers.get("X-Real-IP", "").strip() or (request.remote_addr or "")
+    except Exception:
+        return ""
+
+
+def _glip_event(emoji: str, title: str, fields: list[tuple[str, str]],
+                extra: str = "") -> None:
+    """Post a richly-formatted event to Glip: a bold header line, then a set of
+    labeled fields (User / Time (UTC) / IP / ...), matching the fuller format
+    used by our other internal tools. Any field with an empty value is skipped.
+    Best-effort — delegates delivery (and failure-swallowing) to notify_glip."""
+    lines = [f"{emoji} **AIR Pro Performance Analyzer — {title}**"]
+    for label, value in fields:
+        value = (str(value) if value is not None else "").strip()
+        if value:
+            lines.append(f"- **{label}:** {value}")
+    if extra:
+        lines.append("")
+        lines.append(extra)
+    notify_glip("\n".join(lines))
+
+
+def _utc_now() -> str:
+    """Current time as an ISO-8601 UTC timestamp, e.g. 2026-07-20T17:37:50+00:00."""
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
 @app.context_processor
 def _inject_is_admin():
     return {"is_admin": session.get("user_email", "").strip().lower() in ADMIN_EMAILS,
@@ -215,11 +255,13 @@ def ideas():
             "category": category[:60],
             "user_email": submitter,
         })
-        _cat = f" [{category[:60]}]" if category else ""
-        _detail = f"\n{detail[:500]}" if detail else ""
-        notify_glip(
-            f"💡 New idea from {submitter or 'a user'}{_cat}\n"
-            f"“{title[:200]}”{_detail}")
+        _glip_event("💡", "new idea", [
+            ("User", submitter or "a user"),
+            ("Category", category[:60]),
+            ("Idea", f"“{title[:200]}”"),
+            ("Time (UTC)", _utc_now()),
+            ("IP", _client_ip()),
+        ], extra=(detail[:500] if detail else ""))
         flash("Thanks! Your idea was sent to the team.")
         return redirect(url_for("ideas", submitted=1))
     return render_template("ideas.html", submitted=request.args.get("submitted"))
@@ -483,6 +525,7 @@ def api_process_stream(run_id):
     user_email = session.get("user_email", "")
     filename = session.get("filename", "")
     queues_filename = session.get("queues_filename", "")
+    client_ip = _client_ip()
 
     @stream_with_context
     def gen():
@@ -501,10 +544,15 @@ def api_process_stream(run_id):
             "queues_file": queues_filename,
             "refine": bool(messages),
         }
-        notify_glip(
-            f"▶️ Analyzer run started by {user_email or 'a user'} "
-            f"for {customer or 'a customer'}"
-            + (" (refine)" if messages else ""))
+        _glip_event("▶️", "run started", [
+            ("User", user_email or "a user"),
+            ("Customer", customer or "a customer"),
+            ("Mode", "refine" if messages else "new deck"),
+            ("Calls file", filename),
+            ("Queues file", queues_filename),
+            ("Time (UTC)", _utc_now()),
+            ("IP", client_ip),
+        ])
 
         try:
             from pipeline import (parse_sessions, build_result, distinct_queues,
@@ -557,10 +605,15 @@ def api_process_stream(run_id):
             log_run({**run_meta, "status": "success",
                      "duration_s": _dur,
                      "sessions": int(n_sessions), "queues": len(queues)})
-            notify_glip(
-                f"✅ Deck ready for {customer or 'a customer'} "
-                f"({user_email or 'a user'}) — {n_sessions:,} sessions, "
-                f"{len(queues)} queues, {_dur}s")
+            _glip_event("✅", "deck ready", [
+                ("User", user_email or "a user"),
+                ("Customer", customer or "a customer"),
+                ("Sessions", f"{n_sessions:,}"),
+                ("Queues", str(len(queues))),
+                ("Duration", f"{_dur}s"),
+                ("Time (UTC)", _utc_now()),
+                ("IP", client_ip),
+            ])
             yield ev(stage="done", msg="Deck ready.", pct=100,
                      download_url=download_url,
                      business=_business_summary_from(biz))
@@ -568,17 +621,25 @@ def api_process_stream(run_id):
             log_run({**run_meta, "status": "error",
                      "duration_s": round(time.monotonic() - started, 1),
                      "error": str(e)})
-            notify_glip(
-                f"❌ Analyzer run failed for {customer or 'a customer'} "
-                f"({user_email or 'a user'}): {e}")
+            _glip_event("❌", "run failed", [
+                ("User", user_email or "a user"),
+                ("Customer", customer or "a customer"),
+                ("Error", str(e)),
+                ("Time (UTC)", _utc_now()),
+                ("IP", client_ip),
+            ])
             yield ev(error=str(e))
         except Exception as e:
             log_run({**run_meta, "status": "error",
                      "duration_s": round(time.monotonic() - started, 1),
                      "error": f"Processing error: {e}"})
-            notify_glip(
-                f"❌ Analyzer run failed for {customer or 'a customer'} "
-                f"({user_email or 'a user'}): Processing error: {e}")
+            _glip_event("❌", "run failed", [
+                ("User", user_email or "a user"),
+                ("Customer", customer or "a customer"),
+                ("Error", f"Processing error: {e}"),
+                ("Time (UTC)", _utc_now()),
+                ("IP", client_ip),
+            ])
             yield ev(error=f"Processing error: {e}")
 
     return Response(gen(), mimetype="text/event-stream",
