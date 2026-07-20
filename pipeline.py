@@ -452,8 +452,18 @@ def build_result(sdf: pd.DataFrame, queue_tiers: dict[str, dict],
     spam_sessions_removed = int(spam_mask.sum())
     clean = sdf[~spam_mask].copy()
 
-    # Headline universe: A+B+C queues only (exclude Tier D back-office)
-    universe = clean[clean["tier"].isin(["A", "B", "C"])].copy()
+    # Headline universe: A+B+C queues only (exclude Tier D back-office).
+    #
+    # Also exclude un-queued sessions (blank Queue -> "Unknown"). These are
+    # direct dials to a personal extension, not calls that entered a customer
+    # call queue. Including them (they previously defaulted to Tier C) inflated
+    # the missed-call rate: a direct call to someone's desk/cell that rings out
+    # or hits personal voicemail is not a missed revenue-line queue call, and it
+    # never appears in the RingCentral Queues Performance report — so the deck's
+    # number couldn't reconcile against the report an AE would verify it with.
+    # Restricting to real queues makes the miss rate defensible and verifiable.
+    universe = clean[clean["tier"].isin(["A", "B", "C"])
+                     & (clean["queue"] != "Unknown")].copy()
 
     if len(universe) == 0:
         n_clean = len(clean)
@@ -464,10 +474,11 @@ def build_result(sdf: pd.DataFrame, queue_tiers: dict[str, dict],
                 "inbound calls in the selected date range."
             )
         raise ValueError(
-            f"Found {n_clean} inbound call(s), but all of them are in back-office queues "
-            "that are excluded from the revenue analysis (e.g. an internal Service Desk). "
-            "Re-export including your sales / retail / branch call queues, or pick a date "
-            "range with customer-facing call volume."
+            f"Found {n_clean} inbound call(s), but none of them entered a customer-facing "
+            "call queue (they were back-office queues or direct dials to personal "
+            "extensions, both excluded from the revenue analysis). Re-export including "
+            "your sales / retail / branch call queues, or pick a date range with "
+            "customer-facing queue volume."
         )
 
     def count(df, outcome):
