@@ -20,18 +20,18 @@
 <div class="card" style="background:linear-gradient(180deg,#fbfcfe 0%,#fff 100%);">
   <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.4rem;">
     <h2 style="margin-bottom:0;">Here's exactly what you'll get</h2>
-    <span style="color:#999;font-size:0.82rem;">Real example · 8-slide .pptx</span>
+    <span style="color:#999;font-size:0.82rem;">Real example · 9-slide .pptx</span>
   </div>
   <p style="color:#777;font-size:0.9rem;margin-bottom:1.5rem;">
-    A finished, RingCentral-branded PowerPoint — built automatically from your two reports. Eight tight,
+    A finished, RingCentral-branded PowerPoint — built automatically from your two reports. Nine tight,
     defensible slides, every number drawn straight from your data. Sample below:
   </p>
 
   <!-- Hero slide: the hour-by-hour miss-rate headline -->
-  <a href="{{ url_for('static', filename='examples/slide-4.png') }}" target="_blank"
+  <a href="{{ url_for('static', filename='examples/slide-5.png') }}" target="_blank"
      style="display:block;border-radius:10px;overflow:hidden;border:1px solid #e7eaf0;
             box-shadow:0 6px 24px rgba(6,46,92,0.12);margin-bottom:1rem;">
-    <img src="{{ url_for('static', filename='examples/slide-4.png') }}"
+    <img src="{{ url_for('static', filename='examples/slide-5.png') }}"
          alt="Example slide: inbound miss rate by hour of day — after-hours, weekend and midday gaps"
          style="width:100%;display:block;">
   </a>
@@ -40,12 +40,13 @@
   <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;">
     {% set example_slides = [
       (1, 'The revenue hiding in your missed calls'),
-      (2, 'Who they are & who is calling them'),
-      (3, 'Missed calls — the headline & how they happened'),
-      (5, 'Abandoned & sub-60-second calls AIR can catch'),
-      (6, 'What config fixes vs. the structural gap only AIR closes'),
-      (7, 'The revenue opportunity'),
-      (8, 'Answer every call — recommendation & next steps')
+      (2, 'How we measured it — so every number holds up'),
+      (3, 'Who they are & who is calling them'),
+      (4, 'Missed calls — the headline & how they happened'),
+      (6, 'Abandoned & sub-60-second calls AIR can catch'),
+      (7, 'What config fixes vs. the structural gap only AIR closes'),
+      (8, 'The revenue opportunity'),
+      (9, 'Answer every call — recommendation & next steps')
     ] %}
     {% for num, caption in example_slides %}
     <a href="{{ url_for('static', filename='examples/slide-' ~ num ~ '.png') }}" target="_blank"
