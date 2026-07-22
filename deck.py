@@ -486,20 +486,20 @@ def _slide_hourly(prs, r: PipelineResult, ctx, narr):
     # Three callout stat cards (right)
     cx, cw = Inches(8.85), Inches(3.98)
     cards = [
+        (f"~{round(r.midday_miss_rate*100)}%",
+         "missed during peak midday hours — where almost all your volume is"),
         (_range_or_pct(r.after_hours_miss_lo, r.after_hours_miss_hi, r.after_hours_miss_rate),
-         "of after-hours calls (6pm–6am) are missed"),
+         "of the smaller after-hours trickle (6pm–6am) is missed too"),
         (_range_or_pct(r.weekend_miss_lo, r.weekend_miss_hi, r.weekend_miss_rate),
          "missed on Saturdays and Sundays"),
-        (f"~{round(r.midday_miss_rate*100)}%",
-         "missed even during peak midday hours"),
     ]
     cy = Inches(2.15); ch = Inches(1.4); gap = Inches(0.18)
     for big, label in cards:
         _stat_card(s, cx, cy, cw, ch, big, label, big_color=RC_ORANGE, big_size=34)
         cy = Emu(int(cy) + int(ch) + int(gap))
 
-    _punch(s, [("AIR answers instantly — ", {"bold": True, "size": 15, "color": WHITE, "font": FONT}),
-               ("every hour, every day.", {"size": 15, "color": ICE, "font": FONT})],
+    _punch(s, [("AIR absorbs the midday overflow first — ", {"bold": True, "size": 15, "color": WHITE, "font": FONT}),
+               ("and covers the after-hours trickle for free.", {"size": 15, "color": ICE, "font": FONT})],
            y=Inches(6.62), h=Inches(0.45))
     _footer(s)
 
@@ -1568,8 +1568,8 @@ def build_deck(result: PipelineResult, run_id: str, customer: str, ae_name: str,
     # every slide after the business-context opener is verifiable straight from
     # the RingCentral reports — nothing modeled except the one caveated slide.
     narr2 = _narr_titles(ctx, prior_instructions, "slide2")
-    narr_hourly = {"title": "Calls slip away after hours, on weekends — and even midday",
-                   "subtitle": f"Inbound miss rate by hour of day · {result.reporting_period} · when the business closes or gets busy, calls get missed"}
+    narr_hourly = {"title": "Most calls are missed midday — right when the phones are staffed",
+                   "subtitle": f"Inbound miss rate by hour of day · {result.reporting_period} · the loss is business-hours overflow, with a smaller always-on trickle after hours"}
     narr3_sub = (f"{result.total_missed:,} genuine misses AIR can answer + "
                  f"{result.answered_under_60:,} short routine calls it can deflect · "
                  f"session-deduplicated · {result.reporting_period}")
