@@ -568,12 +568,36 @@ def _slide3(prs, r: PipelineResult, ctx, narr):
                (" of serviced calls ran under 60s — routine volume an AI receptionist could handle", {"size": 11, "color": MUTED})]],
           lx + Inches(0.28), by + Inches(1.6), lw - Inches(0.5), Inches(0.5))
 
-    # Right — most-abandoned queues table (from the Queues report when present)
+    # Right — most-abandoned queues table (from the Queues report when present).
+    # Business Analytics exports have no queues — calls land on one direct/main
+    # line — so a "most-abandoned queues" list is meaningless there. Detect that
+    # single synthetic-queue case and show an abandoned-call summary instead.
     rx = Inches(5.0)
-    _text(s, "Where callers wait, then drop — staffed queues", rx, Inches(2.15),
-          Inches(7.8), Inches(0.35), size=14, bold=True, color=RC_NAVY, font=FONT)
+    direct_only = (not (qr and qr.queues)) and set(r.queue_stats) <= {"Direct line"}
 
-    if qr and qr.queues:
+    if direct_only:
+        _text(s, "Callers who gave up before reaching anyone", rx, Inches(2.15),
+              Inches(7.8), Inches(0.35), size=14, bold=True, color=RC_NAVY, font=FONT)
+        ab_total = r.abandoned_total
+        inbound = r.inbound_sessions or 1
+        ab_pct = round(ab_total / inbound * 100)
+        _rect(s, rx, Inches(2.6), Inches(7.85), Inches(1.7), CARD_BG, radius=True)
+        _text(s, "ABANDONED CALLS", rx + Inches(0.3), Inches(2.8),
+              Inches(4.0), Inches(0.4), size=11.5, bold=True, color=MUTED, font=FONT)
+        _text(s, f"{ab_total:,}", rx + Inches(0.28), Inches(3.24),
+              Inches(3.5), Inches(1.0), size=48, bold=True, color=RC_RED, font=FONT, wrap=False)
+        _rich(s, [[(f"{ab_pct}% of inbound calls ", {"bold": True, "size": 12, "color": RC_NAVY}),
+                   ("rang, then the caller hung up before a person answered", {"size": 11, "color": MUTED})]],
+              rx + Inches(3.9), Inches(3.3), Inches(3.7), Inches(0.9))
+        _text(s, "Calls arrive on your main / direct line — there is no queue to hold them, so an "
+                 "unanswered call is simply lost. AI Receptionist answers every one on the first ring, "
+                 "day or night.",
+              rx, Inches(4.5), Inches(7.85), Inches(1.2), size=11, italic=True, color=RC_NAVY)
+    else:
+        _text(s, "Where callers wait, then drop — staffed queues", rx, Inches(2.15),
+              Inches(7.8), Inches(0.35), size=14, bold=True, color=RC_NAVY, font=FONT)
+
+    if not direct_only and qr and qr.queues:
         # Exclude pure routing/overflow queues (0 ever answered): in RingCentral's
         # queue analytics a call transferred OUT of a reception/overflow queue is
         # recorded as "abandoned" there even though it was answered after transfer.
@@ -604,7 +628,7 @@ def _slide3(prs, r: PipelineResult, ctx, narr):
                 segs.append((label, {"size": 11, "color": MUTED}))
                 segs.append((val, {"size": 11, "bold": True, "color": RC_RED}))
             _rich(s, [segs], rx, Inches(6.32), Inches(7.85), Inches(0.35))
-    else:
+    elif not direct_only:
         top_ab = sorted((q for q in r.queue_stats.values() if q.abandoned_total > 0),
                         key=lambda q: q.abandoned_total, reverse=True)[:10]
         _abandon_table(s, top_ab, rx, Inches(2.55), Inches(7.85))
@@ -816,10 +840,10 @@ def _slide_config_vs_air(prs, r: PipelineResult, ctx, narr):
     s = prs.slides.add_slide(prs.slide_layouts[6])
     _bg(s)
     _logo(s)
-    _title_block(s, narr.get("title", "What better setup can fix — and what only AI can"),
+    _title_block(s, narr.get("title", "What better routing & staffing can fix — and what only AI can"),
                  narr.get("subtitle",
-                          "We separate the calls a smarter queue setup would catch from the ones that "
-                          "are missed even with a perfect setup — the calls only always-on AI can answer."))
+                          "We separate the calls better routing or more staff could catch from the ones that "
+                          "are missed even when fully staffed — the calls only always-on AI can answer."))
 
     total = r.total_missed
     # Honest, objection-proof split: config-fixable (head-room existed) vs. truly
@@ -845,13 +869,13 @@ def _slide_config_vs_air(prs, r: PipelineResult, ctx, narr):
          "real customer calls that never reached a person",
          "De-duplicated; a call answered after transfer is never counted as missed."),
         (Inches(4.78), Inches(3.55), RGBColor(0xFB,0xF3,0xE0), RC_GOLD, MUTED,
-         "A BETTER QUEUE SETUP COULD CATCH", f"{fixable:,}",
+         "BETTER ROUTING & STAFFING COULD CATCH", f"{fixable:,}",
          f"{fix_pct}% · a person was free — the call just didn't reach them",
          "Fixable by routing/staffing changes — no new licenses needed."),
         (Inches(9.06), Inches(3.55), RGBColor(0xFC,0xEC,0xEC), RC_RED, MUTED,
-         "MISSED EVEN WITH A PERFECT SETUP", f"{truly:,}",
+         "MISSED EVEN WHEN FULLY STAFFED", f"{truly:,}",
          f"{truly_pct}% · {after:,} after hours + {at_cap:,} when every agent was busy",
-         "No setup change recovers these — only always-on AI can answer them."),
+         "No routing or staffing change recovers these — only always-on AI can answer them."),
     ]
     for x, w, bg, numcol, subcol, head, big, sub, foot in cards:
         _rect(s, x, cy, w, ch, bg, radius=True)
@@ -872,12 +896,12 @@ def _slide_config_vs_air(prs, r: PipelineResult, ctx, narr):
 
     # Bottom emphasis band — concede the fixable bucket, protect the AI number.
     if base and truly:
-        _punch(s, [("We'll help you fix the setup issues for free. ",
+        _punch(s, [("Tighten routing and staffing to catch the fixable calls. ",
                     {"size": 12.5, "color": ICE, "font": FONT}),
                    (f"But {truly:,} calls ", {"bold": True, "size": 17, "color": RC_ORANGE, "font": FONT}),
                    ("were missed when no person was available to take them — after hours or with every "
                     "agent already busy. ", {"size": 12.5, "color": ICE, "font": FONT}),
-                   ("No queue setup answers a call when no human is free. That's what AI Receptionist does.",
+                   ("No amount of routing or staffing answers a call when no human is free. That's what AI Receptionist does.",
                     {"size": 12.5, "bold": True, "color": WHITE, "font": FONT})],
               y=Inches(6.05))
     else:
