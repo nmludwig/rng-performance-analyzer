@@ -304,8 +304,8 @@ def _slide2(prs, r: PipelineResult, ctx, narr, sales_queue_calls):
     # Deterministic, plain-English source line — never LLM-generated, so the
     # methodology wording stays consistent and defensible across every deck.
     _title_block(s, narr.get("title", "We miss a lot of calls — and every miss is a lost order"),
-                 f"Source: RingCentral call detail records, {r.reporting_period} · "
-                 "one call is counted once, no matter how many agents it rang")
+                 f"Source: your RingCentral Business Analytics Call Records, {r.reporting_period} · "
+                 "reconciles with the # Inbound and # Missed tiles on your own dashboard")
 
     # Top row — three big-number stat cards.
     cy, cw, ch, gap = Inches(2.15), Inches(3.95), Inches(1.75), Inches(0.24)
@@ -985,9 +985,48 @@ def _slide_call_reasons(prs, r: PipelineResult, ctx, narr):
     # Firecrawl crawl), fall back to a clean, number-led opener so the slide
     # always renders.
     if not (summary or reasons_present):
-        _title_block(s, f"{r.total_missed:,} missed calls — and who was trying to reach {customer}",
+        # No website crawl — we can't say WHO is calling, so lead honestly with
+        # the numbers instead of leaving an empty slide. Big headline stat + the
+        # supporting context figures, then a one-line takeaway.
+        _title_block(s, f"{r.total_missed:,} missed calls at {customer}",
                      f"RingCentral Business Analytics · {r.reporting_period} · "
                      f"call-deduplicated · spam-filtered · external inbound only")
+
+        _bpd = _business_days(r)
+        cards = [
+            (f"{r.total_missed:,}", "genuine missed calls\nexternal inbound only", RC_RED),
+            (f"{round(r.miss_rate*100)}%", "of inbound calls\nwent unanswered", RC_ORANGE),
+            (f"{round(r.total_missed/_bpd):,}", "missed every\nbusiness day (Mon–Fri)", RC_NAVY),
+            (f"{r.repeat_callers:,}", "callers who tried\nmore than once", RC_NAVY),
+        ]
+        cw, gap = Inches(2.95), Inches(0.16)
+        cx, cy, ch = Inches(0.5), Inches(2.5), Inches(1.75)
+        for big, label, col in cards:
+            _stat_card(s, cx, cy, cw, ch, big, label, big_color=col, big_size=40)
+            cx = Emu(int(cx) + int(cw) + int(gap))
+
+        # Outcome split band — what actually happened to those missed calls.
+        _text(s, "What happened to them", Inches(0.5), Inches(4.6), Inches(12.3), Inches(0.35),
+              size=14, bold=True, color=RC_NAVY, font=FONT)
+        splits = [
+            (f"{r.missed:,}", "rang out — no answer", RC_RED),
+            (f"{r.voicemail_total:,}", "went to voicemail", RC_ORANGE),
+            (f"{r.abandoned_total:,}", "abandoned before answer", RC_NAVY),
+        ]
+        sx, sw, sh = Inches(0.5), Inches(4.0), Inches(1.0)
+        for big, label, col in splits:
+            _rect(s, sx, Inches(5.0), sw, sh, CARD_BG, radius=True)
+            _text(s, big, sx + Inches(0.28), Inches(5.12), Inches(1.6), Inches(0.7),
+                  size=26, bold=True, color=col, font=FONT, wrap=False)
+            _text(s, label, sx + Inches(1.7), Inches(5.28), sw - Inches(1.9), Inches(0.6),
+                  size=11, color=MUTED, font=FONT, line_spacing=1.0)
+            sx = Emu(int(sx) + int(sw) + int(Inches(0.16)))
+
+        _punch(s, [(f"Every one of these {r.total_missed:,} calls is a customer who tried to reach "
+                    f"{customer} and couldn't. ", {"size": 12.5, "color": ICE, "font": FONT}),
+                   ("The rest of this deck shows when they happened — and what it's worth to answer them.",
+                    {"size": 12.5, "bold": True, "color": WHITE, "font": FONT})],
+              y=Inches(6.25))
         _footer(s)
         return
 
