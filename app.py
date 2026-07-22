@@ -381,44 +381,32 @@ def upload(run_id):
         flash("Session mismatch — please start over.")
         return redirect(url_for("index"))
 
+    # Single-file model: the RingCentral Business Analytics "Call Records"
+    # export now carries every outcome (answered / missed / voicemail /
+    # abandoned) in one file, so there is no longer a second Queues upload.
     file = request.files.get("report")
-    queues_file = request.files.get("queues_report")
 
     if not file or not file.filename:
-        flash("Please select the Calls export.")
+        flash("Please select the Business Analytics Call Records export.")
         return redirect(url_for("upload_step", run_id=run_id))
     if not file.filename.lower().endswith((".xlsx", ".xls")):
-        flash("Only Excel files (.xlsx / .xls) are accepted for the Calls export.")
+        flash("Only Excel files (.xlsx / .xls) are accepted.")
         return redirect(url_for("upload_step", run_id=run_id))
 
-    if not queues_file or not queues_file.filename:
-        flash("Please also upload the Queues report — it carries the abandoned-call data.")
-        return redirect(url_for("upload_step", run_id=run_id))
-    if not queues_file.filename.lower().endswith((".xlsx", ".xls")):
-        flash("Only Excel files (.xlsx / .xls) are accepted for the Queues report.")
-        return redirect(url_for("upload_step", run_id=run_id))
-
-    # Non-blocking filename-structure warning: RingCentral exports follow a
-    # predictable naming scheme, so a mismatched prefix usually means the wrong
-    # report (or tab) was downloaded into that slot. We warn but still proceed.
-    _expected = (
-        (file, "RingCentral_PR_Calls", "PR Calls"),
-        (queues_file, "RingCentral_PR_Queues", "PR Queues"),
-    )
-    for f, prefix, label in _expected:
-        if f and f.filename and not f.filename.lower().startswith(prefix.lower()):
-            flash(
-                f"Heads up: the file you uploaded for {label} (“{f.filename}”) "
-                f"doesn’t start with “{prefix}…”. Double-check it’s "
-                f"the right export.")
+    # Non-blocking filename-structure warning: the Business Analytics export
+    # downloads as "Call_Records_…". A mismatched name usually means the wrong
+    # report (e.g. an old Performance Report) was uploaded. Warn but proceed.
+    if not file.filename.lower().startswith("call_records"):
+        flash(
+            f"Heads up: the file you uploaded (“{file.filename}”) doesn’t start "
+            "with “Call_Records…”. Make sure it’s the Business Analytics Call "
+            "Records export, not an older Performance Report.")
 
     upload_path = UPLOAD_FOLDER / f"{run_id}.xlsx"
     file.save(upload_path)
-    queues_path = UPLOAD_FOLDER / f"{run_id}_queues.xlsx"
-    queues_file.save(queues_path)
 
     session["filename"] = file.filename
-    session["queues_filename"] = queues_file.filename
+    session["queues_filename"] = ""
     session["reporting_period"] = request.form.get("reporting_period", "").strip()
 
     # Average order value: the one ROI input not measured from the call logs. When
@@ -505,10 +493,9 @@ def api_process_stream(run_id):
         )
 
     upload_path = UPLOAD_FOLDER / f"{run_id}.xlsx"
-    queues_path = UPLOAD_FOLDER / f"{run_id}_queues.xlsx"
-    if not upload_path.exists() or not queues_path.exists():
+    if not upload_path.exists():
         return Response(
-            "data: " + json.dumps({"error": "Uploaded files not found — please re-upload."}) + "\n\n",
+            "data: " + json.dumps({"error": "Uploaded file not found — please re-upload."}) + "\n\n",
             mimetype="text/event-stream",
         )
 
@@ -555,35 +542,30 @@ def api_process_stream(run_id):
         ])
 
         try:
-            from pipeline import (parse_sessions, build_result, distinct_queues,
-                                  parse_queues_report, queues_report_queue_names)
-            from claude_client import classify_queues
+            from pipeline import (parse_business_analytics, build_result,
+                                  ba_queue_tiers)
             from deck import build_deck
 
-            yield ev(stage="parse", msg="Reading the call export…", pct=8)
-            sdf = parse_sessions(upload_path)
+            yield ev(stage="parse", msg="Reading the Business Analytics export…", pct=10)
+            sdf = parse_business_analytics(upload_path)
             n_sessions = len(sdf)
             yield ev(stage="parse",
-                     msg=f"De-duplicated call legs into {n_sessions:,} sessions.", pct=24)
+                     msg=f"De-duplicated call legs into {n_sessions:,} inbound calls.", pct=30)
 
-            queues = distinct_queues(sdf)
-
-            yield ev(stage="queues", msg="Reading the Queues report (abandoned calls)…", pct=32)
-            queues_report = parse_queues_report(queues_path)
-            queues = sorted(set(queues) | set(queues_report_queue_names(queues_report)))
+            # No queue dimension in Business Analytics call records — all inbound
+            # is one synthetic 'Direct line' bucket, so no queue classification.
+            queues = [next(iter(ba_queue_tiers()))]
+            tiers = ba_queue_tiers()
+            queues_report = None
 
             biz = business_context
             if biz is None and company_url:
-                yield ev(stage="profile", msg="Profiling the business from its website…", pct=36)
+                yield ev(stage="profile", msg="Profiling the business from its website…", pct=42)
                 try:
                     from business_context import build_business_context
                     biz = build_business_context(company_url, customer, queues)
                 except Exception as e:
                     biz = {"available": False, "reason": f"error: {e}"}
-
-            yield ev(stage="classify",
-                     msg=f"Classifying {len(queues)} call queues by revenue relevance…", pct=46)
-            tiers = classify_queues(queues, business_context=biz)
 
             yield ev(stage="analyze", msg="Calculating the missed-call impact…", pct=62)
             result = build_result(sdf, tiers, queues_report=queues_report)
@@ -670,25 +652,20 @@ def _business_summary_from(biz):
 
 
 def _run_pipeline_and_build(run_id, upload_path, messages):
-    from pipeline import (parse_sessions, build_result, distinct_queues,
-                          parse_queues_report, queues_report_queue_names)
-    from claude_client import classify_queues
+    from pipeline import parse_business_analytics, build_result, ba_queue_tiers
     from deck import build_deck
 
-    sdf = parse_sessions(upload_path)
-    queues = distinct_queues(sdf)
+    sdf = parse_business_analytics(upload_path)
 
-    # Mandatory Queues report (2nd upload) — the only source of abandoned data.
-    queues_path = UPLOAD_FOLDER / f"{run_id}_queues.xlsx"
-    if not queues_path.exists():
-        raise ValueError("The Queues report is missing — please re-upload both files.")
-    queues_report = parse_queues_report(queues_path)
-    # Tier both queue-name sets together so the abandoned table can be tiered.
-    queues = sorted(set(queues) | set(queues_report_queue_names(queues_report)))
+    # Business Analytics call records carry no queue dimension — all inbound is
+    # one synthetic 'Direct line' bucket, and the Result column carries every
+    # outcome, so there is no second Queues report and no queue classification.
+    queues = [next(iter(ba_queue_tiers()))]
+    tiers = ba_queue_tiers()
+    queues_report = None
 
     # Business context via Firecrawl is crawled up-front (discover step) and
-    # cached in the session. Build it here only as a fallback, BEFORE tiering,
-    # so queue tiers can be reasoned from this customer's actual business.
+    # cached in the session. Build it here only as a fallback.
     business_context = session.get("business_context")
     company_url = session.get("company_url", "").strip()
     if business_context is None and company_url:
@@ -700,7 +677,6 @@ def _run_pipeline_and_build(run_id, upload_path, messages):
             business_context = {"available": False, "reason": f"error: {e}"}
         session["business_context"] = business_context
 
-    tiers = classify_queues(queues, business_context=business_context)
     result = build_result(sdf, tiers, queues_report=queues_report)
 
     override_period = session.get("reporting_period", "").strip()

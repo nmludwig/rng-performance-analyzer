@@ -739,3 +739,205 @@ def queues_report_queue_names(report: Optional[QueuesReport]) -> list[str]:
     if not report:
         return []
     return [q.name for q in report.queues]
+
+
+# ===========================================================================
+# Business Analytics single-report pipeline (new foundation, 2026-07)
+# ---------------------------------------------------------------------------
+# RingCentral is deprecating Performance Reports. The new source of truth is the
+# Business Analytics "Call Records" widget, exported as ONE Excel file. It is
+# per-call (not per-leg), and — crucially — RingCentral now stamps each call's
+# outcome directly in a `Result` column, so we no longer re-derive missed/
+# abandoned/voicemail from durations or stitch a second Queues report. We simply
+# trust RingCentral's own labels, which means every headline number reconciles
+# 1:1 with the Business Analytics dashboard KPI tiles the AE can see on screen.
+#
+# File shape:
+#   rows 0-5  : a metadata block (Widget Name, Start/End Date, TimeZone, filter)
+#   row  6    : the real column header
+#   row  7+   : one row per call
+# Header columns:
+#   From Name, From Number, To Name, To Number, Date-Time, Length, Direction,
+#   Call Type, Call Response, Result, Ringing, IVR Prompt, Live Talk, Hold,
+#   Park, Transfer, VM Greeting, VoiceMail, Setup, Forwarding, Origin,
+#   Call Id, Hop Id
+#
+# There is no Queue dimension in this widget, so all inbound is reported under a
+# single synthetic "Direct line" queue (Tier C) — this keeps the existing
+# build_result math and every deck slide working unchanged.
+# ===========================================================================
+
+BA_SYNTHETIC_QUEUE = "Direct line"
+
+# RingCentral Business-Analytics `Result` values -> our internal outcomes.
+# Business Analytics has no separate "abandoned-to-voicemail" state, so
+# vm_abandoned is always 0 on this source.
+_BA_RESULT_MAP = {
+    "completed": OUTCOME_ANSWERED,
+    "transferred": OUTCOME_ANSWERED,   # handled — transferred to another party
+    "missed with vm": OUTCOME_VM_MISSED,
+    "missed without vm": OUTCOME_MISSED,
+    "abandoned": OUTCOME_ABANDONED,
+}
+
+_BA_HEADER_MARKERS = {"from number", "result", "direction", "date-time"}
+
+
+def _ba_seconds(val) -> float:
+    """Business Analytics duration cells come through openpyxl as
+    datetime.timedelta (Excel time-of-day). Convert any of timedelta / number /
+    'HH:MM:SS' string to float seconds."""
+    if val is None:
+        return 0.0
+    if isinstance(val, dt.timedelta):
+        return val.total_seconds()
+    if isinstance(val, (int, float)):
+        # Excel serial time-of-day is a day fraction; but analytics exports come
+        # as timedelta, so a bare number here is already seconds.
+        return float(val)
+    return _to_seconds(val)
+
+
+def _ba_parse_datetime(val):
+    """Parse a Business Analytics 'Date-Time' cell (e.g. '07/20/2026 9:52:58 PM'
+    or a real datetime) into a python datetime, or None."""
+    if val is None:
+        return None
+    if isinstance(val, dt.datetime):
+        return val
+    return _parse_start_time(val)
+
+
+def parse_business_analytics(path: Path) -> pd.DataFrame:
+    """Parse a RingCentral Business Analytics 'Call Records' export into one row
+    per inbound external session, in the SAME schema build_result() consumes:
+      session_id, outcome, queue, handle_seconds, is_spam, start_time,
+      from_number, in_business_hours   (+ attrs['raw_inbound_legs']).
+
+    Trusts RingCentral's own `Result` label for the outcome. Filters to
+    Direction=Inbound and Origin=External, de-duplicates transfer hops by
+    Call Id (answered wins), and drops unclassifiable 'Other' results as spam so
+    the universe matches the dashboard's classified inbound count.
+    """
+    import openpyxl
+
+    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    try:
+        # This widget exports a single sheet ("Calls_Records"); take the first.
+        ws = wb[wb.sheetnames[0]]
+
+        header = None
+        header_i = None
+        col = {}
+        rows_iter = ws.iter_rows(values_only=True)
+        # Locate the real header row (skip the metadata block at the top).
+        for i, row in enumerate(rows_iter):
+            cells = [str(c).strip().lower() if c is not None else "" for c in row]
+            if _BA_HEADER_MARKERS.issubset(set(cells)):
+                header = [str(c).strip() if c is not None else "" for c in row]
+                header_i = i
+                col = {h.lower(): j for j, h in enumerate(header) if h}
+                break
+        if header is None:
+            raise ValueError(
+                "This doesn't look like a RingCentral Business Analytics 'Call "
+                "Records' export. Expected a header row with From Number / "
+                "Direction / Result / Date-Time columns. In Analytics → Business "
+                "Analytics, open the Call Records dashboard, add the Call "
+                "Segment / Origin / Call ID / Hop ID / Recording columns, Save, "
+                "then Download."
+            )
+
+        def gi(name):
+            return col.get(name.lower())
+
+        i_dir, i_origin, i_result = gi("Direction"), gi("Origin"), gi("Result")
+        i_from, i_dt = gi("From Number"), gi("Date-Time")
+        i_talk = gi("Live Talk")
+        i_len = gi("Length")
+        i_callid, i_type = gi("Call Id"), gi("Call Type")
+
+        records = []
+        raw_inbound_legs = 0
+        for row in rows_iter:  # continues AFTER the header row
+            if i_dir is None or i_dir >= len(row):
+                continue
+            direction = str(row[i_dir] or "").strip().lower()
+            if direction != "inbound":
+                continue
+            origin = str(row[i_origin] or "").strip().lower() if i_origin is not None else "external"
+            if origin and origin != "external":
+                continue  # drop internal extension-to-extension traffic
+            raw_inbound_legs += 1
+            result = str(row[i_result] or "").strip()
+            records.append({
+                "call_id": str(row[i_callid] or "").strip() if i_callid is not None else "",
+                "result": result,
+                "from_number": str(row[i_from] or "").strip() if i_from is not None else "",
+                "start_time": _ba_parse_datetime(row[i_dt] if i_dt is not None else None),
+                "talk_seconds": _ba_seconds(row[i_talk] if i_talk is not None else None),
+                "len_seconds": _ba_seconds(row[i_len] if i_len is not None else None),
+            })
+    finally:
+        wb.close()
+
+    if not records:
+        raise ValueError(
+            "No inbound calls were found in this Business Analytics export. "
+            "Make sure the dashboard date range covers a period with inbound "
+            "call volume before downloading."
+        )
+
+    df = pd.DataFrame.from_records(records)
+
+    # Map RingCentral's Result label -> outcome. Unknown/'Other' -> spam (excluded).
+    def map_outcome(res: str) -> str:
+        return _BA_RESULT_MAP.get(res.strip().lower(), "")
+
+    df["outcome"] = df["result"].map(map_outcome)
+    df["is_spam"] = df["outcome"] == ""            # unclassifiable ('Other' etc.)
+    df.loc[df["is_spam"], "outcome"] = OUTCOME_MISSED  # placeholder; filtered out
+
+    # De-duplicate transfer hops: one physical call can appear as several rows
+    # sharing a Call Id. Collapse to one session, answered-priority.
+    _priority = {OUTCOME_ANSWERED: 5, OUTCOME_VM_ABANDONED: 4, OUTCOME_VM_MISSED: 3,
+                 OUTCOME_ABANDONED: 2, OUTCOME_MISSED: 1}
+    df["_rank"] = df["outcome"].map(lambda o: _priority.get(o, 0))
+    has_id = df["call_id"].astype(str).str.len() > 0
+    keyed, unkeyed = df[has_id].copy(), df[~has_id].copy()
+    if len(keyed):
+        keyed = (keyed.sort_values("_rank", ascending=False)
+                      .groupby("call_id", sort=False, as_index=False).first())
+    sdf_src = pd.concat([keyed, unkeyed], ignore_index=True)
+
+    handle = np.where(sdf_src["outcome"] == OUTCOME_ANSWERED,
+                      sdf_src["talk_seconds"].astype(float), 0.0)
+    starts = list(sdf_src["start_time"])
+    st = pd.to_datetime(pd.Series(starts), errors="coerce")
+    in_bh = (
+        st.notna()
+        & st.dt.weekday.isin(BUSINESS_DAYS)
+        & (st.dt.hour >= BUSINESS_START_HOUR)
+        & (st.dt.hour < BUSINESS_END_HOUR)
+    )
+
+    sdf = pd.DataFrame({
+        "session_id": (sdf_src["call_id"].where(sdf_src["call_id"].astype(str).str.len() > 0,
+                       [f"row-{i}" for i in range(len(sdf_src))]).to_numpy()),
+        "outcome": sdf_src["outcome"].to_numpy(),
+        "queue": BA_SYNTHETIC_QUEUE,
+        "handle_seconds": handle.astype(float),
+        "is_spam": sdf_src["is_spam"].to_numpy(),
+        "start_time": starts,
+        "from_number": sdf_src["from_number"].fillna("").astype(str).to_numpy(),
+    })
+    sdf["in_business_hours"] = in_bh.to_numpy()
+    sdf.attrs["raw_inbound_legs"] = raw_inbound_legs
+    return sdf
+
+
+def ba_queue_tiers() -> dict[str, dict]:
+    """Tiering map for the single synthetic Business-Analytics queue. There is
+    no queue dimension in the Call Records widget, so all inbound is one Tier-C
+    'Direct line' bucket — kept in the headline universe (never excluded)."""
+    return {BA_SYNTHETIC_QUEUE: {"tier": "C", "classification": "Direct / main line"}}
