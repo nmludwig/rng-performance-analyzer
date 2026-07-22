@@ -475,7 +475,11 @@ def _slide_hourly(prs, r: PipelineResult, ctx, narr):
                  narr.get("subtitle", ""))
 
     # Big miss-rate column chart (left)
-    _miss_rate_chart(s, r, Inches(0.5), Inches(2.15), Inches(8.0), Inches(4.35))
+    _miss_rate_chart(s, r, Inches(0.5), Inches(2.15), Inches(8.0), Inches(4.05))
+    _text(s, "Pale bars are low-volume overnight hours — a high miss % there reflects very few calls, "
+             "not a big loss. The volume (and the loss) is in the solid daytime bars.",
+          Inches(0.5), Inches(6.22), Inches(8.0), Inches(0.4),
+          size=8.5, italic=True, color=MUTED, font=FONT, line_spacing=1.0)
 
     # Three callout stat cards (right)
     cx, cw = Inches(8.85), Inches(3.98)
@@ -513,6 +517,23 @@ def _miss_rate_chart(s, r, x, y, w, h):
     plot.gap_width = 35
     plot.series[0].format.fill.solid()
     plot.series[0].format.fill.fore_color.rgb = RC_ORANGE
+    # Shade low-volume hours pale so a 100% miss rate built on a handful of
+    # overnight calls doesn't read as loudly as a 60% rate on hundreds of midday
+    # calls. "Low volume" = under 15% of the busiest hour's inbound count.
+    hourly_vol = getattr(r, "hourly_inbound", {}) or {}
+    max_vol = max(hourly_vol.values()) if hourly_vol else 0
+    thresh = max_vol * 0.15
+    pale = RGBColor(0xF6, 0xD8, 0xB8)
+    if max_vol:
+        try:
+            pts = plot.series[0].points
+            for hh in range(24):
+                if hourly_vol.get(hh, 0) < thresh:
+                    pt = pts[hh]
+                    pt.format.fill.solid()
+                    pt.format.fill.fore_color.rgb = pale
+        except Exception:
+            pass
     cat = chart.category_axis
     cat.tick_labels.font.size = Pt(9)
     cat.format.line.color.rgb = CARD_BORDER
@@ -1335,9 +1356,16 @@ def _slide_next(prs, r: PipelineResult, ctx, narr):
                    label_color=ICE, big_size=40)
         cx = Emu(int(cx) + int(cw) + int(gap))
 
+    # Show the basis for the AIR cost so the ROI denominator isn't a mystery number.
+    air_rate = ctx.get("air_rate", AIR_RATE_PER_MIN)
+    _rich(s, [[("AIR cost basis: ", {"bold": True, "size": 9.5, "color": WHITE, "font": FONT}),
+               (f"your ~{round(m['inbound_per_month']):,} inbound calls/mo × "
+                f"{r.avg_answered_minutes:.1f} min avg talk × ${air_rate:.2f}/min — "
+                "sized on your own data, not a list price.", {"size": 9.5, "color": WHITE})]],
+          Inches(0.5), Inches(6.32), Inches(12.0), Inches(0.24), align=PP_ALIGN.CENTER)
     _text(s, f"Even at a conservative capture rate on {'revenue-line ' if ctx.get('revenue_line_only', True) else ''}missed calls, "
              "the return dwarfs the cost — validated against your own order value.",
-          Inches(0.52), Inches(6.55), Inches(11.5), Inches(0.5),
+          Inches(0.52), Inches(6.62), Inches(11.5), Inches(0.5),
           size=12.5, italic=True, color=WHITE, font=FONT)
     _footer(s, warm=True)
 
