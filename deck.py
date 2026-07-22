@@ -312,8 +312,8 @@ def _slide2(prs, r: PipelineResult, ctx, narr, sales_queue_calls):
     cx = Inches(0.5)
     bpd = _business_days(r)
     stats = [
-        (f"{r.total_missed:,}", "genuine missed calls\nexternal inbound only", RC_RED),
-        (f"{r.miss_rate*100:.0f}%", f"of {r.universe_sessions:,} inbound\ncalls were missed", RC_NAVY),
+        (f"{r.total_missed:,}", "missed calls to your\nmain call queues", RC_RED),
+        (f"{r.miss_rate*100:.0f}%", f"of {r.universe_sessions:,} main-queue\ncalls were missed", RC_NAVY),
         (f"{round(r.total_missed/bpd):,}", "missed every business day\n(Mon–Fri average)", RC_ORANGE),
     ]
     for big, label, col in stats:
@@ -363,8 +363,11 @@ def _slide2(prs, r: PipelineResult, ctx, narr, sales_queue_calls):
          f"{r.phantom_legs_removed:,} duplicate hops removed), and set aside {r.spam_sessions_removed:,} "
          f"calls RingCentral couldn't classify to an outcome. Outcomes come straight from RingCentral's own "
          f"Result labels. And {r.repeat_callers:,} numbers were missed more than once — the same caller "
-         f"trying again — so these are calls, not unique customers: the people-level gap is smaller. Every "
-         f"step only shrinks the number, never inflates it.",
+         f"trying again — so these are calls, not unique customers: the people-level gap is smaller. "
+         + (f"We also set aside {r.direct_missed:,} missed direct-dial calls to individual staff extensions "
+            f"(existing clients, callbacks) and count only calls to your main/intake queues — the potential "
+            f"new customers. " if r.direct_missed else "")
+         + "Every step only shrinks the number, never inflates it.",
          {"size": 9.5, "color": MUTED})
     ]], Inches(0.5), Inches(6.72), Inches(12.4), Inches(0.62), line_spacing=1.03)
 
@@ -1013,12 +1016,12 @@ def _slide_call_reasons(prs, r: PipelineResult, ctx, narr):
         # supporting context figures, then a one-line takeaway.
         _title_block(s, f"{r.total_missed:,} missed calls at {customer}",
                      f"RingCentral Business Analytics · {r.reporting_period} · "
-                     f"call-deduplicated · spam-filtered · external inbound only")
+                     f"call-deduplicated · spam-filtered · main call queues only")
 
         _bpd = _business_days(r)
         cards = [
-            (f"{r.total_missed:,}", "genuine missed calls\nexternal inbound only", RC_RED),
-            (f"{round(r.miss_rate*100)}%", "of inbound calls\nwent unanswered", RC_ORANGE),
+            (f"{r.total_missed:,}", "missed calls to your\nmain call queues", RC_RED),
+            (f"{round(r.miss_rate*100)}%", "of main-queue calls\nwent unanswered", RC_ORANGE),
             (f"{round(r.total_missed/_bpd):,}", "missed every\nbusiness day (Mon–Fri)", RC_NAVY),
             (f"{r.repeat_callers:,}", "callers who tried\nmore than once", RC_NAVY),
         ]
@@ -1611,8 +1614,8 @@ def _narr_titles(ctx, prior, which):
         return generate_narrative({**ctx, "slide": which}, schema, prior)
     except Exception:
         if which == "slide2":
-            return {"title": f"{ctx['total_missed']:,} genuine missed calls, external inbound only",
-                    "subtitle": f"Customer-facing queues · {ctx['reporting_period']} · session-deduplicated · spam-filtered · internal/back-office excluded"}
+            return {"title": f"{ctx['total_missed']:,} missed calls to your main call queues",
+                    "subtitle": f"Main / intake queues only · {ctx['reporting_period']} · call-deduplicated · spam-filtered · direct-dial extensions excluded"}
         return {"title": "Where customers are getting missed — by queue",
-                "subtitle": f"Session-deduplicated · spam-filtered · {ctx['reporting_period']} · external inbound only · ranked by calls lost"}
+                "subtitle": f"Call-deduplicated · spam-filtered · {ctx['reporting_period']} · main call queues only · ranked by calls lost"}
 

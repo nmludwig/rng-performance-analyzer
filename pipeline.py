@@ -167,6 +167,12 @@ class PipelineResult:
     # ROI model inputs
     avg_answered_minutes: float = 3.0  # mean talk time of answered calls (minutes)
 
+    # Direct-dial calls (personal extensions) — excluded from the headline
+    # missed-revenue universe, surfaced only as a smaller secondary figure.
+    direct_total: int = 0
+    direct_missed: int = 0
+    direct_abandoned: int = 0
+
     queue_stats: dict[str, QueueStats] = field(default_factory=dict)
     queues_report: Optional[QueuesReport] = None   # real abandoned data (2nd upload)
     reporting_period: str = ""
@@ -452,6 +458,17 @@ def build_result(sdf: pd.DataFrame, queue_tiers: dict[str, dict],
     spam_sessions_removed = int(spam_mask.sum())
     clean = sdf[~spam_mask].copy()
 
+    # Direct-dial calls (Tier D "Direct line") are excluded from the headline
+    # universe below, but we tally them here for the secondary "and there's
+    # more" callout. These are calls dialed to a personal extension, not the
+    # main/intake queues, so a miss here is a weaker (existing-relationship)
+    # signal than a missed main-queue call.
+    _direct = clean[clean["queue"] == BA_QUEUE_DIRECT]
+    direct_total = int(len(_direct))
+    direct_missed = int((_direct["outcome"] != OUTCOME_ANSWERED).sum())
+    direct_abandoned = int(_direct["outcome"].isin(
+        [OUTCOME_ABANDONED, OUTCOME_VM_ABANDONED]).sum())
+
     # Headline universe: A+B+C queues only (exclude Tier D back-office).
     #
     # Also exclude un-queued sessions (blank Queue -> "Unknown"). These are
@@ -642,6 +659,9 @@ def build_result(sdf: pd.DataFrame, queue_tiers: dict[str, dict],
         weekend_miss_rate=weekend_miss_rate,
         midday_miss_rate=midday_miss_rate,
         avg_answered_minutes=avg_answered_minutes,
+        direct_total=direct_total,
+        direct_missed=direct_missed,
+        direct_abandoned=direct_abandoned,
         queue_stats=queue_stats,
         queues_report=queues_report,
         reporting_period=reporting_period,
@@ -769,6 +789,16 @@ def queues_report_queue_names(report: Optional[QueuesReport]) -> list[str]:
 
 BA_SYNTHETIC_QUEUE = "Direct line"
 
+# Serviced-vs-unserviced framing. RingCentral's `Call Type` distinguishes calls
+# that entered a shared call queue (main/intake lines — potential NEW customers)
+# from calls dialed straight to one person's extension (existing relationships,
+# callbacks). Only the former belong in the headline missed-revenue case; the
+# latter are broken out as a smaller secondary figure. See parse_business_analytics.
+BA_QUEUE_INTAKE = "Main call queues"   # Call Type = Queue Calls / Overflow / Transferred
+BA_QUEUE_DIRECT = "Direct line"        # Call Type = Inbound Direct (personal extension)
+# Call Type values that mean "entered a shared/main call queue".
+_BA_QUEUE_TYPES = {"queue calls", "overflow calls", "transferred calls", "park retrievals"}
+
 # RingCentral Business-Analytics `Result` values -> our internal outcomes.
 # Business Analytics has no separate "abandoned-to-voicemail" state, so
 # vm_abandoned is always 0 on this source.
@@ -870,9 +900,11 @@ def parse_business_analytics(path: Path) -> pd.DataFrame:
                 continue  # drop internal extension-to-extension traffic
             raw_inbound_legs += 1
             result = str(row[i_result] or "").strip()
+            call_type = str(row[i_type] or "").strip() if i_type is not None else ""
             records.append({
                 "call_id": str(row[i_callid] or "").strip() if i_callid is not None else "",
                 "result": result,
+                "call_type": call_type,
                 "from_number": str(row[i_from] or "").strip() if i_from is not None else "",
                 "start_time": _ba_parse_datetime(row[i_dt] if i_dt is not None else None),
                 "talk_seconds": _ba_seconds(row[i_talk] if i_talk is not None else None),
@@ -898,16 +930,24 @@ def parse_business_analytics(path: Path) -> pd.DataFrame:
     df["is_spam"] = df["outcome"] == ""            # unclassifiable ('Other' etc.)
     df.loc[df["is_spam"], "outcome"] = OUTCOME_MISSED  # placeholder; filtered out
 
+    # Classify each leg as a queue (main/intake) call vs a direct-dial call.
+    # A physical call is a "queue" call if ANY of its legs entered a call queue.
+    df["_is_queue"] = (df["call_type"].fillna("").str.strip().str.lower()
+                       .isin(_BA_QUEUE_TYPES))
+
     # De-duplicate transfer hops: one physical call can appear as several rows
     # sharing a Call Id. Collapse to one session, answered-priority.
     _priority = {OUTCOME_ANSWERED: 5, OUTCOME_VM_ABANDONED: 4, OUTCOME_VM_MISSED: 3,
                  OUTCOME_ABANDONED: 2, OUTCOME_MISSED: 1}
     df["_rank"] = df["outcome"].map(lambda o: _priority.get(o, 0))
     has_id = df["call_id"].astype(str).str.len() > 0
+    # Per-call queue flag = did ANY leg of this Call Id enter a queue?
+    qmap = df[has_id].groupby("call_id")["_is_queue"].any() if has_id.any() else {}
     keyed, unkeyed = df[has_id].copy(), df[~has_id].copy()
     if len(keyed):
         keyed = (keyed.sort_values("_rank", ascending=False)
                       .groupby("call_id", sort=False, as_index=False).first())
+        keyed["_is_queue"] = keyed["call_id"].map(qmap).fillna(False)
     sdf_src = pd.concat([keyed, unkeyed], ignore_index=True)
 
     handle = np.where(sdf_src["outcome"] == OUTCOME_ANSWERED,
@@ -925,7 +965,8 @@ def parse_business_analytics(path: Path) -> pd.DataFrame:
         "session_id": (sdf_src["call_id"].where(sdf_src["call_id"].astype(str).str.len() > 0,
                        [f"row-{i}" for i in range(len(sdf_src))]).to_numpy()),
         "outcome": sdf_src["outcome"].to_numpy(),
-        "queue": BA_SYNTHETIC_QUEUE,
+        "queue": np.where(sdf_src["_is_queue"].to_numpy(),
+                          BA_QUEUE_INTAKE, BA_QUEUE_DIRECT),
         "handle_seconds": handle.astype(float),
         "is_spam": sdf_src["is_spam"].to_numpy(),
         "start_time": starts,
@@ -937,7 +978,14 @@ def parse_business_analytics(path: Path) -> pd.DataFrame:
 
 
 def ba_queue_tiers() -> dict[str, dict]:
-    """Tiering map for the single synthetic Business-Analytics queue. There is
-    no queue dimension in the Call Records widget, so all inbound is one Tier-C
-    'Direct line' bucket — kept in the headline universe (never excluded)."""
-    return {BA_SYNTHETIC_QUEUE: {"tier": "C", "classification": "Direct / main line"}}
+    """Tiering map for the two Business-Analytics call buckets, split by Call Type.
+
+    Main call queues (intake / shared lines) are the potential-new-customer
+    traffic and form the headline universe (Tier A). Direct-dial calls to a
+    personal extension are existing relationships/callbacks; they are Tier D so
+    they drop out of the headline missed-revenue number and are surfaced only as
+    a smaller secondary figure (see PipelineResult.direct_* fields)."""
+    return {
+        BA_QUEUE_INTAKE: {"tier": "A", "classification": "Main / intake call queue"},
+        BA_QUEUE_DIRECT: {"tier": "D", "classification": "Direct dial to a person"},
+    }
