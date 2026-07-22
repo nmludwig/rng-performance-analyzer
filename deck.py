@@ -323,7 +323,7 @@ def _slide2(prs, r: PipelineResult, ctx, narr, sales_queue_calls):
     # Middle-left: hourly chart with the staffed-hours framing as its caption.
     mx, mw = Inches(0.5), Inches(6.1)
     _text(s, f"{round(r.business_hours_miss_pct*100)}% of misses hit during staffed hours — "
-             "peak overflow, when every agent is already on a call.",
+             "calls slipping past available staff, not just after-hours gaps.",
           mx, Inches(4.15), mw, Inches(0.5), size=12, bold=True, color=RC_NAVY, font=FONT, line_spacing=1.0)
     _hourly_chart(s, r, mx, Inches(4.7), mw, Inches(1.75))
 
@@ -1152,16 +1152,20 @@ def _slide_revenue(prs, r: PipelineResult, ctx, narr):
     cap_hi = ctx.get("capture_override") or CONSERVATIVE_CAPTURE
     rev_year = m["rev_missed_per_year"]
     rev_month = m["rev_missed_per_month"]
+    rev_only = ctx.get("revenue_line_only", True)
+    pool_label = "revenue-line missed" if rev_only else "missed calls"
+    _subtitle = (f"Revenue-line missed calls only (sales · orders · bookings) · "
+                 if rev_only else "Missed calls · ")
     _title_block(s, narr.get("title", "Sizing the revenue opportunity — conservatively"),
                  narr.get("subtitle",
-                          f"Revenue-line missed calls only (sales · orders · bookings) · "
-                          f"{ctx.get('reporting_period','')} run-rate · illustrative, using your own order value"))
+                          f"{_subtitle}{ctx.get('reporting_period','')} run-rate · "
+                          f"illustrative, using your own order value"))
 
     # Funnel strip — pool is the REVENUE-LINE missed calls, never total volume.
     fy = Inches(2.2)
     steps = [
-        (f"{round(rev_month):,}", "revenue-line missed / month", RC_NAVY, CARD_BG, MUTED),
-        (f"{round(rev_year):,}", "revenue-line missed / year", RC_NAVY, CARD_BG, MUTED),
+        (f"{round(rev_month):,}", f"{pool_label} / month", RC_NAVY, CARD_BG, MUTED),
+        (f"{round(rev_year):,}", f"{pool_label} / year", RC_NAVY, CARD_BG, MUTED),
         ("× capture %", "booked as orders", RC_NAVY, CARD_BG, MUTED),
         ("= recovered $", "added revenue", WHITE, RC_ORANGE, ICE),
     ]
@@ -1175,7 +1179,7 @@ def _slide_revenue(prs, r: PipelineResult, ctx, narr):
         sx = Emu(int(sx) + int(sw) + int(Inches(0.11)))
 
     # Recovered-revenue table by capture rate (revenue-line pool only)
-    _text(s, "Annual recovered revenue — revenue-line missed calls only, by capture rate",
+    _text(s, f"Annual recovered revenue — {'revenue-line missed calls only' if rev_only else 'missed calls'}, by capture rate",
           Inches(0.5), Inches(3.45), Inches(12.3), Inches(0.35), size=14, bold=True, color=RC_NAVY, font=FONT)
     _revenue_table(s, m, aov, cap_hi, Inches(0.5), Inches(3.85), Inches(12.33))
 
@@ -1208,7 +1212,9 @@ def _slide_revenue(prs, r: PipelineResult, ctx, narr):
             "default": "placeholder — set your real value"}.get(src, "placeholder")
     by = Inches(6.72)
     _rich(s, [[("Measured from your own RingCentral logs: ", {"bold": True, "size": 9.5, "color": RC_TEAL, "font": FONT}),
-               ("missed calls, abandons, hours and which queues — nothing modeled.", {"size": 9.5, "color": DARK})]],
+               (("missed calls, abandons and hours — nothing modeled." if not rev_only
+                 else "missed calls, abandons, hours and which queues — nothing modeled."),
+                {"size": 9.5, "color": DARK})]],
           Inches(0.5), by, Inches(12.33), Inches(0.24), align=PP_ALIGN.CENTER)
     _rich(s, [[("Two assumptions only: ", {"bold": True, "size": 9.5, "color": RC_ORANGE, "font": FONT}),
                (f"capture rate (shown as a range above) and average order value (${aov:,} — {prov}). "
@@ -1290,8 +1296,8 @@ def _slide_next(prs, r: PipelineResult, ctx, narr):
                    label_color=ICE, big_size=40)
         cx = Emu(int(cx) + int(cw) + int(gap))
 
-    _text(s, "Even at a conservative capture rate on revenue-line missed calls, the return dwarfs the cost — "
-             "validated against your own order value.",
+    _text(s, f"Even at a conservative capture rate on {'revenue-line ' if ctx.get('revenue_line_only', True) else ''}missed calls, "
+             "the return dwarfs the cost — validated against your own order value.",
           Inches(0.52), Inches(6.55), Inches(11.5), Inches(0.5),
           size=12.5, italic=True, color=WHITE, font=FONT)
     _footer(s, warm=True)
@@ -1466,9 +1472,24 @@ def build_deck(result: PipelineResult, run_id: str, customer: str, ae_name: str,
     cap = _num(overrides.get("capture_rate"))
     ctx["capture_override"] = cap if cap and 0 < cap < 1 else None
 
-    # Scale the observed revenue-line missed pool to a 30.4-day month so it lines
-    # up with the model's monthly basis (the report period may not be exactly 30 days).
-    _rev_missed_month = sales_queue_calls * (30.4 / (result.days_in_period or 30))
+    # Revenue-line opportunity pool.
+    #   - Performance-Report era: queue tiering isolates the sales/orders/bookings
+    #     (A/B) queues, so the pool is only those missed calls. Scaled to a 30.4-day
+    #     month to line up with the model's monthly run-rate basis.
+    #   - Business Analytics era: every inbound call lands on one direct/main line,
+    #     so there is NO revenue queue to isolate and A/B tiering yields 0. Falling
+    #     back to the full missed count is the honest pool (for a direct-line
+    #     business every missed inbound call is a potential revenue call) — but the
+    #     slide must SAY "missed calls," not "sales/orders/bookings only," and the
+    #     figure must NOT be inflated above the period total the rest of the deck
+    #     shows. So we use the observed total on a standard 30-day month, which
+    #     reconciles 1:1 with the missed-calls slide for a ~monthly report.
+    _has_revenue_tiering = sales_queue_calls > 0
+    ctx["revenue_line_only"] = _has_revenue_tiering
+    if _has_revenue_tiering:
+        _rev_missed_month = sales_queue_calls * (30.4 / (result.days_in_period or 30))
+    else:
+        _rev_missed_month = result.total_missed * (30.0 / (result.days_in_period or 30))
     ctx["roi"] = _roi_model(result, ctx["air_rate"], rev_missed_month=_rev_missed_month)
     ctx["sales_queue_missed"] = sales_queue_calls
 
