@@ -352,17 +352,19 @@ def _slide2(prs, r: PipelineResult, ctx, narr, sales_queue_calls):
               rx, by + Inches(0.02), rw, Inches(0.55), size=10, italic=True, color=MUTED)
 
     # Plain-English methodology footnote — the "why you can trust this number"
-    # line an AE can point to. Explains Session ID de-duplication in customer
-    # language and shows the exact counts, so nothing looks hidden.
+    # line an AE can point to. Describes the Business Analytics de-duplication
+    # (by Call ID) in customer language and shows the exact counts, plus the
+    # repeat-caller context so "59%" is never mistaken for unique lost customers.
     _rich(s, [[
         ("How the count is cleaned — and why it's conservative:  ", {"bold": True, "size": 9.5, "color": RC_NAVY}),
-        (f"RingCentral logs every ring of a call as a separate line, so a call ringing several agents "
-         f"appears several times. We group lines by their shared Session ID so each call counts once, not "
-         f"many times ({r.raw_inbound_legs:,} raw lines → {r.inbound_sessions:,} real calls; "
-         f"{r.phantom_legs_removed:,} duplicate rings removed). We also set aside {r.spam_sessions_removed:,} "
-         f"calls whose entire duration — ring included — was under 5 seconds: misdials, wrong numbers and "
-         f"auto-dialer hang-ups too brief for anyone to answer. Both steps only shrink the number, never "
-         f"inflate it — no genuine call is counted twice or dropped.",
+        (f"RingCentral logs every ring and transfer hop of a call as a separate line, so one call can appear "
+         f"several times. We group lines by their shared Call ID so each call counts once, not many times "
+         f"({r.raw_inbound_legs:,} raw lines → {r.inbound_sessions:,} real calls; "
+         f"{r.phantom_legs_removed:,} duplicate hops removed), and set aside {r.spam_sessions_removed:,} "
+         f"calls RingCentral couldn't classify to an outcome. Outcomes come straight from RingCentral's own "
+         f"Result labels. And {r.repeat_callers:,} numbers were missed more than once — the same caller "
+         f"trying again — so these are calls, not unique customers: the people-level gap is smaller. Every "
+         f"step only shrinks the number, never inflates it.",
          {"size": 9.5, "color": MUTED})
     ]], Inches(0.5), Inches(6.72), Inches(12.4), Inches(0.62), line_spacing=1.03)
 
@@ -1278,7 +1280,8 @@ def _slide_revenue(prs, r: PipelineResult, ctx, narr):
           Inches(0.5), by, Inches(12.33), Inches(0.24), align=PP_ALIGN.CENTER)
     _rich(s, [[("Two assumptions only: ", {"bold": True, "size": 9.5, "color": RC_ORANGE, "font": FONT}),
                (f"capture rate (shown as a range above) and average order value (${aov:,} — {prov}). "
-                "Validate against your CRM.", {"size": 9.5, "color": DARK})]],
+                f"Annual figures project {ctx.get('reporting_period','this period')}'s run-rate ×12 — "
+                "validate against a full quarter and your CRM.", {"size": 9.5, "color": DARK})]],
           Inches(0.5), by + Inches(0.24), Inches(12.33), Inches(0.24), align=PP_ALIGN.CENTER)
     _footer(s, 8)
 
@@ -1364,7 +1367,7 @@ def _slide_next(prs, r: PipelineResult, ctx, narr):
                 "sized on your own data, not a list price.", {"size": 9.5, "color": WHITE})]],
           Inches(0.5), Inches(6.32), Inches(12.0), Inches(0.24), align=PP_ALIGN.CENTER)
     _text(s, f"Even at a conservative capture rate on {'revenue-line ' if ctx.get('revenue_line_only', True) else ''}missed calls, "
-             "the return dwarfs the cost — validated against your own order value.",
+             "the return dwarfs the cost. Annual figures project one month's run-rate ×12 — validate against a full quarter.",
           Inches(0.52), Inches(6.62), Inches(11.5), Inches(0.5),
           size=12.5, italic=True, color=WHITE, font=FONT)
     _footer(s, warm=True)
