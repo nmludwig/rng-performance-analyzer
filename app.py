@@ -21,7 +21,7 @@ load_dotenv(override=True)
 
 app = Flask(__name__)
 app.secret_key = os.environ["SECRET_KEY"]
-app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50 MB
+app.config["MAX_CONTENT_LENGTH"] = 250 * 1024 * 1024  # 250 MB — BA Call Records exports run large (50k+ calls => 500k+ leg rows)
 
 APP_VERSION = "1.0.0"
 
