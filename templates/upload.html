@@ -22,55 +22,39 @@
        padding:0.3rem 0.75rem;border-radius:999px;margin-bottom:0.75rem;">
     {% if business and business.available %}Step 3 of 3{% else %}Step 2 of 2{% endif %} · Call data
   </div>
-  <h2>Upload your two RingCentral reports</h2>
+  <h2>Upload your Business Analytics report</h2>
   <p style="color:#777;font-size:0.9rem;margin-top:-0.5rem;margin-bottom:1.25rem;">
-    The deck is built from exactly <strong>two</strong> Performance Report exports — both Excel (.xlsx),
-    both required. Nothing else is needed.
+    The deck is built from <strong>one</strong> RingCentral <strong>Business Analytics</strong> export —
+    the <strong>Call Records</strong> report, Excel (.xlsx). That single file now carries every outcome
+    (answered, missed, voicemail, abandoned), so nothing else is needed.
   </p>
 
   <form method="POST" action="{{ url_for('upload', run_id=run_id) }}" enctype="multipart/form-data">
-    <div style="font-weight:700;font-size:0.78rem;letter-spacing:0.04em;text-transform:uppercase;
-         color:#062E5C;margin:0 0 0.6rem;">Both reports are required — export both from the same date range</div>
-
-    <label for="report">1. PR Calls — call-by-call detail <span style="color:#c0392b;font-weight:700;">required</span></label>
+    <label for="report">Business Analytics — Call Records export <span style="color:#c0392b;font-weight:700;">required</span></label>
     <p style="font-size:0.82rem;color:#888;margin:0.1rem 0 0.4rem;">
-      Performance Reports → <strong>Calls</strong> tab → Download → Excel.
-      <strong style="color:#555;">This is the backbone of the deck.</strong> It powers:
-      the headline <strong>missed-call count &amp; miss rate</strong>, the
-      <strong>missed-calls-by-queue</strong> table, the <strong>hourly miss-rate chart</strong> with
+      <strong style="color:#555;">This one file powers the whole deck</strong> —
+      the headline <strong>missed-call count &amp; miss rate</strong>, the answered / voicemail /
+      <strong>abandoned</strong> split, the <strong>hourly miss-rate chart</strong> with
       after-hours / weekend / midday breakdowns, <strong>answered-under-60-second</strong> calls, and
-      repeat-caller detection. Without it there is no deck.
-      File name starts with <code style="background:#f3f5f8;padding:0.05rem 0.3rem;border-radius:4px;">RingCentral_PR_Calls…</code>
+      repeat-caller detection — all straight from RingCentral's own call outcomes, so every number
+      reconciles with the Business Analytics dashboard.
+      File name starts with <code style="background:#f3f5f8;padding:0.05rem 0.3rem;border-radius:4px;">Call_Records…</code>
     </p>
     <p style="font-size:0.8rem;color:#9a5a00;background:#fff8f0;border:1px solid #ffe0c2;
        border-radius:6px;padding:0.5rem 0.7rem;margin:0.1rem 0 0.5rem;line-height:1.5;">
-      ⏱ Heads up: this is the big file. The Excel can take <strong>several minutes</strong> to
-      generate and download from the analytics portal, and may be <strong>~40&nbsp;MB</strong> for
-      a full month. Wait for it to finish downloading before selecting it here.
+      ⏱ Heads up: for a full month this export can be large and take a
+      <strong>minute or two</strong> to generate and download. Wait for it to finish downloading
+      before selecting it here. See the step-by-step below — the download path is not obvious.
     </p>
-    <input type="file" id="report" name="report" accept=".xlsx,.xls" data-expect="RingCentral_PR_Calls" data-expect-label="RingCentral_PR_Calls…"
+    <input type="file" id="report" name="report" accept=".xlsx,.xls" data-expect="Call_Records" data-expect-label="Call_Records…"
            style="width:100%;padding:0.6rem 0;margin-bottom:0.35rem;font-size:0.95rem;" required>
     <p class="filewarn" data-for="report"></p>
-
-    <label for="queues_report">2. PR Queues — queue performance <span style="color:#c0392b;font-weight:700;">required</span></label>
-    <p style="font-size:0.82rem;color:#888;margin:0.1rem 0 0.4rem;">
-      Performance Reports → <strong>Queues</strong> tab → Download → Excel.
-      <strong style="color:#555;">This is the only source of abandonment data.</strong> It powers the
-      <strong>abandoned-in-queue</strong> count and abandon rate, <strong>average &amp; longest wait</strong>,
-      <strong>service level (SLA)</strong>, and the <strong>most-abandoned-queues</strong> table. The Calls
-      export has no "abandoned" field, so without this report those numbers are blank.
-      File name starts with <code style="background:#f3f5f8;padding:0.05rem 0.3rem;border-radius:4px;">RingCentral_PR_Queues…</code>
-    </p>
-    <input type="file" id="queues_report" name="queues_report" accept=".xlsx,.xls" data-expect="RingCentral_PR_Queues" data-expect-label="RingCentral_PR_Queues…"
-           style="width:100%;padding:0.6rem 0;margin-bottom:0.35rem;font-size:0.95rem;" required>
-    <p class="filewarn" data-for="queues_report"></p>
 
     <label for="reporting_period">Reporting period <span style="font-weight:400;color:#999;">(optional)</span></label>
     <input type="text" id="reporting_period" name="reporting_period" placeholder="auto-detected from data">
     <p style="font-size:0.82rem;color:#888;margin:0.1rem 0 1.25rem;">
-      Leave blank to auto-detect it from the call dates. Queues are classified automatically into
-      customer-facing vs. internal — internal / back-office queues (no customer on the line) are
-      excluded from the missed-call count.
+      Leave blank to auto-detect it from the call dates. Only <strong>inbound external</strong> calls
+      are analyzed — internal extension-to-extension traffic is excluded automatically.
     </p>
 
     <label for="avg_order_value">Average order value <span style="font-weight:400;color:#999;">(recommended)</span></label>
@@ -101,7 +85,7 @@
 
   <details style="margin-top:1.5rem;border-top:1px solid #f0f0f0;padding-top:1rem;" open>
     <summary style="cursor:pointer;font-weight:700;font-size:0.95rem;color:#FF8800;">
-      How to export the two reports (step-by-step)
+      How to export the Call Records report (step-by-step — the path is not obvious)
     </summary>
 
     <!-- Before you start -->
@@ -109,39 +93,49 @@
       <div style="font-weight:700;font-size:0.85rem;color:#062E5C;margin-bottom:0.4rem;">Before you start</div>
       <p style="line-height:1.6;color:#555;font-size:0.88rem;margin:0;">
         With the customer's authorization, open their RingCentral account (via
-        <strong>SCP</strong>) and go to <strong>analytics.ringcentral.com</strong>.
+        <strong>SCP</strong>) and go to <strong>analytics.ringcentral.com</strong>. We use
+        <strong>Business Analytics</strong> — not Performance Reports, which RingCentral is retiring.
       </p>
     </div>
 
     <!-- Steps -->
     <ol style="padding-left:1.4rem;line-height:1.8;color:#444;font-size:0.9rem;margin-top:1rem;">
-      <li>Open <strong>Analytics → Performance Reports</strong> and click the <strong>Calls</strong> tab.</li>
-      <li>Set the <strong>date pill</strong> to your range (e.g. <strong>Last Month</strong>); leave all
-          filter dropdowns at their defaults so nothing is excluded.</li>
-      <li><strong>Download → Excel</strong> and upload it as report <strong>1 · PR Calls</strong>.</li>
-      <li>Click the <strong>Queues</strong> tab, keep the <strong>same date range</strong>,
-          <strong>Download → Excel</strong>, and upload as report <strong>2 · PR Queues</strong>.
-          Both are required — only the Queues file carries abandoned-in-queue counts, wait times, and service level.</li>
+      <li>In the left menu, open <strong>Business Analytics</strong>.</li>
+      <li>At the top, open the <strong>Dashboard</strong> dropdown and select
+          <strong>Call Records Dashboard&nbsp;- Default</strong> (the “Default” owner one).</li>
+      <li>Set the <strong>Date Range</strong> to your period (e.g. <strong>Last Month</strong>).
+          Leave the other filters at their defaults so nothing is excluded.</li>
+      <li>On the far right, next to <strong>Show Filters</strong>, click the
+          <strong>three dots (⋮)</strong> and choose <strong>Edit</strong>.</li>
+      <li>On the left under <strong>Configurable Columns → Call Segment</strong>, add the extra columns
+          by clicking: <strong>Origin</strong>, <strong>Call ID</strong>, <strong>Hop ID</strong>, and
+          <strong>Recording</strong>. (Leave the default columns as they are.)</li>
+      <li>Click <strong>Save</strong>.</li>
+      <li>Click <strong>Download</strong> (top right) → <strong>Excel</strong>. That file —
+          <code style="background:#f3f5f8;padding:0.05rem 0.3rem;border-radius:4px;">Call_Records…​.xlsx</code>
+          — is the one you upload above.</li>
     </ol>
 
-    <!-- Required columns -->
+    <!-- What the tool reads -->
     <div style="margin-top:1rem;background:#fff8f0;border:1px solid #ffe0c2;border-radius:8px;padding:0.9rem 1.1rem;">
       <div style="font-weight:700;font-size:0.85rem;color:#FF8800;margin-bottom:0.4rem;">
-        PR Calls columns
+        What the tool reads
       </div>
       <div style="font-size:0.84rem;color:#444;line-height:1.7;">
-        <strong>Required:</strong> Session Id · Call Direction · Result · Call Length · Queue<br>
-        <strong>Recommended:</strong> Handle Time · Call Start Time · From Number
+        Every outcome comes from RingCentral's own <strong>Result</strong> column
+        (Completed · Missed with VM · Missed without VM · Abandoned). The tool keeps
+        <strong>inbound external</strong> calls, de-duplicates transfer hops by <strong>Call ID</strong>,
+        and counts each call once.
       </div>
       <p style="color:#888;font-size:0.8rem;line-height:1.5;margin:0.55rem 0 0;">
-        The Calls tab includes these by default — if there's a <strong>Select Columns</strong> option,
-        check all eight. The required ones gate the upload; the rest unlock the hourly chart,
-        repeat-caller detection, and answered-under-60s. PR Queues has fixed columns — nothing to select.
+        Because the numbers come straight from RingCentral's labels, they reconcile 1:1 with the
+        Business Analytics dashboard KPI tiles (# Inbound, # Missed with VM, etc.) — easy to verify on screen.
       </p>
     </div>
 
     <p style="color:#aaa;font-size:0.78rem;line-height:1.5;margin-top:0.9rem;margin-bottom:0;">
-      Tip: the export is one row per <em>call leg</em> — the tool de-duplicates into one row per call, so no cleanup needed.
+      Tip: adding the Call Segment / Origin / Call ID / Hop ID / Recording columns is a one-time setup on
+      that dashboard — once saved, future downloads already include them.
     </p>
   </details>
 </div>
