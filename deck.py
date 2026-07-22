@@ -264,7 +264,7 @@ def _slide_cover(prs, r: PipelineResult, ctx, ae_name):
              color=WHITE)
     _hero(s, "The revenue hiding in", "your missed calls.", Inches(0.5), Inches(3.05),
           size=48, dark=True, line2_color=WHITE)
-    _text(s, f"RingCentral Performance Reports  ·  {r.reporting_period}  ·  "
+    _text(s, f"RingCentral Business Analytics  ·  {r.reporting_period}  ·  "
              "every figure derived from your own call data.",
           Inches(0.52), Inches(5.35), Inches(11.0), Inches(0.5),
           size=14, color=WHITE, font=FONT)
@@ -986,8 +986,8 @@ def _slide_call_reasons(prs, r: PipelineResult, ctx, narr):
     # always renders.
     if not (summary or reasons_present):
         _title_block(s, f"{r.total_missed:,} missed calls — and who was trying to reach {customer}",
-                     f"RingCentral Performance Reports · {r.reporting_period} · "
-                     f"session-deduplicated · spam-filtered · external inbound only")
+                     f"RingCentral Business Analytics · {r.reporting_period} · "
+                     f"call-deduplicated · spam-filtered · external inbound only")
         _footer(s)
         return
 
