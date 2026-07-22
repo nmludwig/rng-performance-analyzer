@@ -974,7 +974,53 @@ def parse_business_analytics(path: Path) -> pd.DataFrame:
     })
     sdf["in_business_hours"] = in_bh.to_numpy()
     sdf.attrs["raw_inbound_legs"] = raw_inbound_legs
+
+    # Queue-segment completeness. The whole business case rests on missed calls
+    # to the main / intake CALL QUEUES. The default Call Records export omits the
+    # queue-call segments, leaving a file that is almost all direct-dial rows —
+    # which silently produces a weak deck that measures the wrong thing. Detect
+    # that here (on non-spam calls) and stash the counts + a warning message so
+    # the app can block the run with an actionable, specific error.
+    _live = sdf[~sdf["is_spam"]]
+    q_calls = int((_live["queue"] == BA_QUEUE_INTAKE).sum())
+    d_calls = int((_live["queue"] == BA_QUEUE_DIRECT).sum())
+    inbound_calls = int(len(_live))
+    q_share = (q_calls / inbound_calls) if inbound_calls else 0.0
+    sdf.attrs["queue_calls"] = q_calls
+    sdf.attrs["direct_calls"] = d_calls
+    sdf.attrs["queue_call_share"] = q_share
+    # Misconfigured export = queue calls are both a tiny share AND a tiny count.
+    # (A genuinely small firm with real queues still shows a healthy share, so
+    # this won't false-positive on low volume.)
+    sdf.attrs["queue_segments_missing"] = (q_share < 0.15 and q_calls < 500)
     return sdf
+
+
+# Threshold constants surfaced for the app's pre-flight check / messaging.
+QUEUE_SEGMENT_MIN_SHARE = 0.15
+QUEUE_SEGMENT_MIN_CALLS = 500
+
+
+def queue_segment_error(sdf: pd.DataFrame) -> Optional[str]:
+    """Return an actionable error message if the export is missing its main /
+    intake queue-call segments, else None. The business case is built on missed
+    MAIN-QUEUE calls; without the queue segments the file is almost all
+    direct-dial traffic and the deck would understate the real opportunity."""
+    if not sdf.attrs.get("queue_segments_missing"):
+        return None
+    q = sdf.attrs.get("queue_calls", 0)
+    d = sdf.attrs.get("direct_calls", 0)
+    return (
+        f"This export is missing its main call-queue data, so a business case can't "
+        f"be built from it. We found only {q:,} calls to your main / intake queues "
+        f"(vs {d:,} direct-dial calls to individual extensions). The AI Business Case "
+        f"is built on missed calls to your MAIN queues — the potential new customers — "
+        f"and the default Call Records export leaves the queue-call segments out.\n\n"
+        f"Re-export from RingCentral Analytics → Business Analytics → Call Records with "
+        f"the QUEUE CALL segments included (not just the default view). A correct export "
+        f"is large (tens of MB) and its Call Type column shows thousands of 'Queue Calls' "
+        f"rows. Then upload it again."
+    )
 
 
 def ba_queue_tiers() -> dict[str, dict]:

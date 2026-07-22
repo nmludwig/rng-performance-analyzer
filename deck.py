@@ -1219,7 +1219,7 @@ def _slide_revenue(prs, r: PipelineResult, ctx, narr):
     rev_month = m["rev_missed_per_month"]
     rev_only = ctx.get("revenue_line_only", True)
     pool_label = "revenue-line missed" if rev_only else "missed calls"
-    _subtitle = (f"Revenue-line missed calls only (sales · orders · bookings) · "
+    _subtitle = (f"Missed calls to your main / intake queues only — your potential new customers · "
                  if rev_only else "Missed calls · ")
     _title_block(s, narr.get("title", "Sizing the revenue opportunity — conservatively"),
                  narr.get("subtitle",
@@ -1369,8 +1369,9 @@ def _slide_next(prs, r: PipelineResult, ctx, narr):
                 f"{r.avg_answered_minutes:.1f} min avg talk × ${air_rate:.2f}/min — "
                 "sized on your own data, not a list price.", {"size": 9.5, "color": WHITE})]],
           Inches(0.5), Inches(6.32), Inches(12.0), Inches(0.24), align=PP_ALIGN.CENTER)
-    _text(s, f"Even at a conservative capture rate on {'revenue-line ' if ctx.get('revenue_line_only', True) else ''}missed calls, "
-             "the return dwarfs the cost. Annual figures project one month's run-rate ×12 — validate against a full quarter.",
+    _text(s, "Even at a conservative capture rate on missed calls to your main / intake queues — "
+             "the potential new customers, not direct dials to existing contacts — the return dwarfs the "
+             "cost. Annual figures project one month's run-rate ×12 — validate against a full quarter.",
           Inches(0.52), Inches(6.62), Inches(11.5), Inches(0.5),
           size=12.5, italic=True, color=WHITE, font=FONT)
     _footer(s, warm=True)
@@ -1571,8 +1572,8 @@ def build_deck(result: PipelineResult, run_id: str, customer: str, ae_name: str,
     # every slide after the business-context opener is verifiable straight from
     # the RingCentral reports — nothing modeled except the one caveated slide.
     narr2 = _narr_titles(ctx, prior_instructions, "slide2")
-    narr_hourly = {"title": "Most calls are missed midday — right when the phones are staffed",
-                   "subtitle": f"Inbound miss rate by hour of day · {result.reporting_period} · the loss is business-hours overflow, with a smaller always-on trickle after hours"}
+    narr_hourly = {"title": "Most missed main-queue calls happen during staffed business hours",
+                   "subtitle": f"Main-queue miss rate by hour of day · {result.reporting_period} · most of the loss is business-hours overflow, with a higher-rate but lower-volume after-hours trickle"}
     narr3_sub = (f"{result.total_missed:,} genuine misses AIR can answer + "
                  f"{result.answered_under_60:,} short routine calls it can deflect · "
                  f"session-deduplicated · {result.reporting_period}")

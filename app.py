@@ -543,11 +543,14 @@ def api_process_stream(run_id):
 
         try:
             from pipeline import (parse_business_analytics, build_result,
-                                  ba_queue_tiers)
+                                  ba_queue_tiers, queue_segment_error)
             from deck import build_deck
 
             yield ev(stage="parse", msg="Reading the Business Analytics export…", pct=10)
             sdf = parse_business_analytics(upload_path)
+            _seg_err = queue_segment_error(sdf)
+            if _seg_err:
+                raise ValueError(_seg_err)
             n_sessions = len(sdf)
             yield ev(stage="parse",
                      msg=f"De-duplicated call legs into {n_sessions:,} inbound calls.", pct=30)
@@ -652,10 +655,14 @@ def _business_summary_from(biz):
 
 
 def _run_pipeline_and_build(run_id, upload_path, messages):
-    from pipeline import parse_business_analytics, build_result, ba_queue_tiers
+    from pipeline import (parse_business_analytics, build_result, ba_queue_tiers,
+                          queue_segment_error)
     from deck import build_deck
 
     sdf = parse_business_analytics(upload_path)
+    _seg_err = queue_segment_error(sdf)
+    if _seg_err:
+        raise ValueError(_seg_err)
 
     # Business Analytics call records carry no queue dimension — all inbound is
     # one synthetic 'Direct line' bucket, and the Result column carries every
